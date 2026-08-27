@@ -13,7 +13,7 @@ import npruLogo from '../assets/images/npru_official_logo_1786581106005.jpg';
 interface HelpGuideModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onNavigateToTab?: (tab: 'submit' | 'track' | 'cases' | 'analytics' | 'code') => void;
+  onNavigateToTab?: (tab: 'submit' | 'track' | 'cases' | 'analytics') => void;
   onOpenLogin?: () => void;
 }
 

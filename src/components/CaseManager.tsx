@@ -10,16 +10,18 @@ import React, { useState, useMemo } from 'react';
 import { 
   Shield, Search, Download, ChevronLeft, ChevronRight, X, Eye, 
   MessageSquare, Trash2, Edit3, Save, Video, Image as ImageIcon, 
-  FileText, Play, Upload, CheckCircle2, AlertTriangle, AlertOctagon, UserPlus, FileSpreadsheet
+  FileText, Play, Upload, CheckCircle2, AlertTriangle, AlertOctagon, UserPlus, FileSpreadsheet,
+  Lock, Send, Sparkles, Clock, RefreshCw
 } from 'lucide-react';
-import { ReportItem, ReportStatus, UrgencyLevel, CategoryType, EvidenceFile } from '../types';
+import { ReportItem, ReportStatus, UrgencyLevel, CategoryType, EvidenceFile, ChatMessage, UserSession } from '../types';
 import { db } from '../db/sqlite';
 
 interface CaseManagerProps {
   onOpenChatWithCase?: (caseId: string) => void;
+  user?: UserSession;
 }
 
-export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase }) => {
+export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, user }) => {
   const [reports, setReports] = useState<ReportItem[]>(() => db.getReports());
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
@@ -30,6 +32,37 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase }) 
   const [activeModalCase, setActiveModalCase] = useState<ReportItem | null>(null);
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  // Admin Chat Modal State
+  const [activeChatCase, setActiveChatCase] = useState<ReportItem | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [adminChatInput, setAdminChatInput] = useState<string>('');
+
+  const handleOpenAdminChat = (report: ReportItem) => {
+    setActiveChatCase(report);
+    setChatMessages(db.getMessages(report.id));
+    setAdminChatInput('');
+  };
+
+  const handleSendAdminChatMessage = (e?: React.FormEvent, customText?: string) => {
+    if (e) e.preventDefault();
+    const textToSend = (customText || adminChatInput).trim();
+    if (!textToSend || !activeChatCase) return;
+
+    const senderName = user?.name 
+      ? `${user.name} (${user.role === 'admin' ? 'ผู้ดูแลระบบ' : 'เจ้าหน้าที่สืบสวน'})` 
+      : 'เจ้าหน้าที่สืบสวน (Officer)';
+
+    const newMsg = db.sendMessage(
+      activeChatCase.id,
+      'investigator',
+      senderName,
+      textToSend
+    );
+
+    setChatMessages(prev => [...prev, newMsg]);
+    setAdminChatInput('');
+  };
 
   // Edit Form state
   const [editForm, setEditForm] = useState<{
@@ -430,15 +463,18 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase }) 
                           </button>
 
                           {/* Chat Secret Channel */}
-                          {onOpenChatWithCase && (
-                            <button
-                              onClick={() => onOpenChatWithCase(r.id)}
-                              className="p-1.5 text-slate-600 hover:text-red-700 hover:bg-rose-100 rounded-lg transition-colors cursor-pointer"
-                              title="เปิดสนทนาลับ"
-                            >
-                              <MessageSquare className="w-4 h-4" />
-                            </button>
-                          )}
+                          <button
+                            onClick={() => handleOpenAdminChat(r)}
+                            className="p-1.5 text-slate-600 hover:text-red-700 hover:bg-rose-100 rounded-lg transition-colors cursor-pointer relative"
+                            title="เปิดแชทสนทนากับผู้แจ้งเบาะแส"
+                          >
+                            <MessageSquare className="w-4 h-4" />
+                            {db.getMessages(r.id).length > 0 && (
+                              <span className="absolute -top-1 -right-1 bg-red-700 text-white text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center border border-white shadow-2xs">
+                                {db.getMessages(r.id).length}
+                              </span>
+                            )}
+                          </button>
 
                           {/* Delete Button */}
                           <button
@@ -759,6 +795,35 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase }) 
                   </p>
                 </div>
 
+                {/* 2-Way Encrypted Chat Bar inside Modal */}
+                <div className="bg-gradient-to-r from-rose-950 via-slate-900 to-rose-950 p-4 rounded-2xl border border-rose-800/60 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-red-700/90 text-white flex items-center justify-center shadow-xs shrink-0">
+                      <MessageSquare className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-rose-200 flex items-center gap-1.5">
+                        <span>ช่องทางสนทนาลับกับผู้แจ้ง (Encrypted 2-Way Chat)</span>
+                        <span className="bg-rose-500/20 text-rose-300 text-[10px] font-mono px-2 py-0.5 rounded-full border border-rose-500/30">
+                          {db.getMessages(activeModalCase.id).length} ข้อความ
+                        </span>
+                      </h4>
+                      <p className="text-[11px] text-slate-300/80 mt-0.5">
+                        สามารถส่งข้อความสอบถามรายละเอียดหรือขอหลักฐานเพิ่มเติมกับผู้แจ้งเบาะแสได้โดยตรง
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleOpenAdminChat(activeModalCase)}
+                    className="w-full sm:w-auto bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0 active:scale-95 border border-red-500/40"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span>เปิดห้องแชท ({db.getMessages(activeModalCase.id).length})</span>
+                  </button>
+                </div>
+
                 {/* Evidence Files & Media Viewer Section */}
                 <div className="space-y-2 border-t border-rose-100 pt-3">
                   <div className="flex justify-between items-center">
@@ -960,6 +1025,147 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase }) 
                 ยืนยันลบข้อมูล
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Encrypted Secret Chat Modal */}
+      {activeChatCase && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl border border-rose-900/30 max-w-2xl w-full h-[620px] max-h-[90vh] shadow-2xl flex flex-col overflow-hidden">
+            
+            {/* Chat Modal Header */}
+            <div className="bg-gradient-to-r from-rose-950 via-rose-900 to-slate-900 text-white p-4 flex items-center justify-between border-b border-rose-950 shadow-xs">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/20 shadow-xs text-rose-300">
+                  <MessageSquare className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-white">สนทนาลับกับผู้แจ้ง (Case Chat)</span>
+                    <span className="bg-rose-500/30 text-rose-200 text-[10px] font-mono px-2 py-0.5 rounded-full border border-rose-400/30">
+                      {activeChatCase.id}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-rose-200/70 mt-0.5 flex items-center gap-2">
+                    <span>{activeChatCase.categoryLabelTh}</span>
+                    <span>•</span>
+                    <span>{activeChatCase.statusLabelTh}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setChatMessages(db.getMessages(activeChatCase.id))}
+                  title="รีเฟรชข้อความ"
+                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-rose-200 hover:text-white transition-colors cursor-pointer"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setActiveChatCase(null)}
+                  className="p-1.5 rounded-lg bg-white/10 hover:bg-rose-800 text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Chat Security Banner */}
+            <div className="bg-rose-50/70 border-b border-rose-100 px-4 py-2 text-[11px] text-rose-900 flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5 text-rose-700" />
+                <span className="font-medium">ช่องทางสื่อสารเข้ารหัส 2 ทาง ปลอดภัยและรักษาสภาพนิรนามของผู้แจ้ง</span>
+              </div>
+              <span className="text-[10px] text-slate-400 font-mono">
+                {chatMessages.length} ข้อความ
+              </span>
+            </div>
+
+            {/* Chat Messages List */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/40">
+              {chatMessages.length === 0 ? (
+                <div className="text-center py-16 space-y-2">
+                  <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-800 flex items-center justify-center mx-auto">
+                    <MessageSquare className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-xs font-bold text-slate-800">ยังไม่มีข้อความสนทนาในรายงานนี้</h4>
+                  <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
+                    ส่งข้อความแรกเพื่อสอบถามข้อมูลหรือชี้แจงความคืบหน้าแก่ผู้แจ้งเบาะแส
+                  </p>
+                </div>
+              ) : (
+                chatMessages.map((msg) => {
+                  const isStaff = msg.senderRole === 'investigator';
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`flex flex-col ${isStaff ? 'items-end' : 'items-start'}`}
+                    >
+                      <div className="flex items-center gap-1.5 mb-1 px-1">
+                        <span className={`text-[10px] font-bold ${isStaff ? 'text-rose-900' : 'text-slate-600'}`}>
+                          {msg.senderName}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          • {msg.timestamp}
+                        </span>
+                      </div>
+                      <div
+                        className={`p-3 rounded-2xl max-w-[85%] text-xs leading-relaxed ${
+                          isStaff
+                            ? 'bg-rose-900 text-white rounded-tr-none shadow-xs font-medium'
+                            : 'bg-white text-slate-900 border border-slate-200 rounded-tl-none font-medium shadow-2xs'
+                        }`}
+                      >
+                        {msg.message}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Quick Response Templates */}
+            <div className="px-4 py-2 bg-white border-t border-slate-100 flex items-center gap-1.5 overflow-x-auto text-[11px] scrollbar-none">
+              <span className="text-slate-400 text-[10px] font-bold shrink-0">ข้อความด่วน:</span>
+              {[
+                '📌 ได้รับข้อมูลเรียบร้อยแล้ว กำลังดำเนินการตรวจสอบ',
+                '📷 ขอความกรุณาแนบภาพหรือเอกสารหลักฐานเพิ่มเติม',
+                '⚖️ ส่งเรื่องให้คณะกรรมการพิจารณาทางวินัยแล้ว',
+                '✅ การตรวจสอบเสร็จสิ้นเรียบร้อยแล้ว ขอบคุณครับ'
+              ].map((template, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => handleSendAdminChatMessage(undefined, template)}
+                  className="bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-900 border border-slate-200 rounded-lg px-2.5 py-1 whitespace-nowrap transition-colors cursor-pointer shrink-0"
+                >
+                  {template}
+                </button>
+              ))}
+            </div>
+
+            {/* Chat Input Bar */}
+            <form onSubmit={handleSendAdminChatMessage} className="p-3 bg-white border-t border-slate-200 flex gap-2">
+              <input
+                type="text"
+                placeholder="พิมพ์ข้อความตอบกลับในฐานะเจ้าหน้าที่สืบสวน..."
+                value={adminChatInput}
+                onChange={(e) => setAdminChatInput(e.target.value)}
+                autoFocus
+                className="flex-1 border border-slate-200 bg-slate-50 rounded-xl p-2.5 text-xs focus:border-rose-900 focus:bg-white focus:ring-2 focus:ring-rose-900/10 outline-none transition-all"
+              />
+              <button
+                type="submit"
+                disabled={!adminChatInput.trim()}
+                className="bg-gradient-to-r from-red-700 to-rose-700 hover:from-red-800 hover:to-rose-800 disabled:opacity-50 text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-xs active:scale-95 shrink-0"
+              >
+                <Send className="w-4 h-4 text-rose-200" />
+                <span>ส่งข้อความ</span>
+              </button>
+            </form>
+
           </div>
         </div>
       )}

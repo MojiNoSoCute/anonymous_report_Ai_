@@ -4,13 +4,13 @@
  */
 
 import React from 'react';
-import { Lock, FileText, Activity, LogIn, UserCheck, Sparkles, LayoutDashboard, Compass, LogOut, BookOpen, Code } from 'lucide-react';
+import { Lock, FileText, Activity, LogIn, UserCheck, Sparkles, LayoutDashboard, Compass, LogOut, BookOpen } from 'lucide-react';
 import { UserSession } from '../types';
 import npruLogo from '../assets/images/npru_official_logo_1786581106005.jpg';
 
 interface NavbarProps {
-  currentTab: 'submit' | 'track' | 'cases' | 'analytics' | 'code';
-  setCurrentTab: (tab: 'submit' | 'track' | 'cases' | 'analytics' | 'code') => void;
+  currentTab: 'submit' | 'track' | 'cases' | 'analytics';
+  setCurrentTab: (tab: 'submit' | 'track' | 'cases' | 'analytics') => void;
   user: UserSession;
   onOpenLogin: () => void;
   onLogout: () => void;
@@ -31,14 +31,12 @@ export const Navbar: React.FC<NavbarProps> = ({
   const publicNavItems = [
     { id: 'submit' as const, label: 'สร้างรายงานใหม่', icon: FileText },
     { id: 'track' as const, label: 'ติดตามสถานะ', icon: Lock },
-    { id: 'code' as const, label: 'โค้ด Python & สถาปัตยกรรม', icon: Code },
   ];
 
   // Admin / Staff items
   const adminNavItems = [
     { id: 'cases' as const, label: 'จัดการรายงานทั้งหมด', icon: LayoutDashboard },
     { id: 'analytics' as const, label: 'สถิติ & สรุปผล', icon: Activity },
-    { id: 'code' as const, label: 'โค้ด Python & สถาปัตยกรรม', icon: Code },
   ];
 
   return (

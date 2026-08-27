@@ -9,7 +9,6 @@ import { SubmitReport } from './components/SubmitReport';
 import { TrackStatus } from './components/TrackStatus';
 import { CaseManager } from './components/CaseManager';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
-import { PythonFlaskCodeView } from './components/PythonFlaskCodeView';
 import { LoginModal } from './components/LoginModal';
 import { HelpGuideModal } from './components/HelpGuideModal';
 import { UserSession } from './types';
@@ -17,7 +16,7 @@ import { Shield, Lock, FileCode, Heart, BookOpen } from 'lucide-react';
 import npruLogo from './assets/images/npru_official_logo_1786581106005.jpg';
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState<'submit' | 'track' | 'cases' | 'analytics' | 'code'>('submit');
+  const [currentTab, setCurrentTab] = useState<'submit' | 'track' | 'cases' | 'analytics'>('submit');
   const [user, setUser] = useState<UserSession>({
     isAuthenticated: false,
     username: '',
@@ -82,7 +81,7 @@ export default function App() {
 
         {currentTab === 'cases' && (
           user.isAuthenticated ? (
-            <CaseManager onOpenChatWithCase={handleOpenChatWithCase} />
+            <CaseManager user={user} onOpenChatWithCase={handleOpenChatWithCase} />
           ) : (
             <div className="max-w-md mx-auto my-16 p-8 bg-white border border-slate-200 rounded-2xl shadow-xs text-center">
               <Shield className="w-12 h-12 text-rose-900 mx-auto mb-3" />
@@ -114,10 +113,6 @@ export default function App() {
               </button>
             </div>
           )
-        )}
-
-        {currentTab === 'code' && (
-          <PythonFlaskCodeView />
         )}
       </main>
 
