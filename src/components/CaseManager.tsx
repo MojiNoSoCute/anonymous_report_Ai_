@@ -41,8 +41,24 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
   const [isWsConnected, setIsWsConnected] = useState<boolean>(realtimeService.getIsConnected());
   const [reporterTyping, setReporterTyping] = useState<string | null>(null);
   const typingTimeoutRef = useRef<any>(null);
+  const adminChatContainerRef = useRef<HTMLDivElement>(null);
   const adminChatEndRef = useRef<HTMLDivElement>(null);
   const [, setTick] = useState<number>(0);
+
+  const scrollAdminChatToBottom = (smooth = false) => {
+    if (adminChatContainerRef.current) {
+      adminChatContainerRef.current.scrollTop = adminChatContainerRef.current.scrollHeight;
+    }
+    if (adminChatEndRef.current) {
+      try {
+        adminChatEndRef.current.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'end' });
+      } catch {
+        if (adminChatContainerRef.current) {
+          adminChatContainerRef.current.scrollTop = adminChatContainerRef.current.scrollHeight;
+        }
+      }
+    }
+  };
 
   // Listen to global incoming messages to update counts in real-time
   useEffect(() => {
@@ -71,7 +87,14 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
     
     // Mark as read immediately upon opening
     realtimeService.markAsRead(activeChatCase.id);
-    setChatMessages(db.getMessages(activeChatCase.id));
+    const currentMsgs = db.getMessages(activeChatCase.id);
+    setChatMessages(currentMsgs);
+
+    // Instant jump to latest messages at bottom
+    requestAnimationFrame(() => scrollAdminChatToBottom(false));
+    const t1 = setTimeout(() => scrollAdminChatToBottom(false), 50);
+    const t2 = setTimeout(() => scrollAdminChatToBottom(false), 150);
+    const t3 = setTimeout(() => scrollAdminChatToBottom(false), 300);
 
     const unsubMsg = realtimeService.onCaseMessage(activeChatCase.id, (newMsg) => {
       setChatMessages((prev) => {
@@ -97,14 +120,19 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
     });
 
     return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
       unsubMsg();
       unsubTyping();
     };
   }, [activeChatCase?.id]);
 
-  // Auto-scroll admin chat
+  // Auto-scroll admin chat when messages change
   useEffect(() => {
-    adminChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (activeChatCase) {
+      scrollAdminChatToBottom(false);
+    }
   }, [chatMessages, reporterTyping]);
 
   const handleOpenAdminChat = (report: ReportItem) => {
@@ -116,6 +144,11 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
     // Mark as read immediately when admin opens chat
     realtimeService.markAsRead(report.id);
     setTick(t => t + 1);
+
+    // Force instant scroll to bottom
+    requestAnimationFrame(() => scrollAdminChatToBottom(false));
+    setTimeout(() => scrollAdminChatToBottom(false), 50);
+    setTimeout(() => scrollAdminChatToBottom(false), 150);
   };
 
   const handleAdminChatInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1208,7 +1241,7 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
             </div>
 
             {/* Chat Messages List */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/40">
+            <div ref={adminChatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/40">
               {chatMessages.length === 0 ? (
                 <div className="text-center py-16 space-y-2">
                   <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-800 flex items-center justify-center mx-auto">

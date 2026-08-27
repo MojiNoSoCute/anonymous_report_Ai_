@@ -40,7 +40,23 @@ export const TrackStatus: React.FC<TrackStatusProps> = ({
   const [isWsConnected, setIsWsConnected] = useState<boolean>(realtimeService.getIsConnected());
   const [otherUserTyping, setOtherUserTyping] = useState<string | null>(null);
   const typingTimeoutRef = useRef<any>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollMessagesToBottom = (smooth = false) => {
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
+    if (messagesEndRef.current) {
+      try {
+        messagesEndRef.current.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'end' });
+      } catch {
+        if (messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+        }
+      }
+    }
+  };
 
   // Subscribe to real-time updates when activeReport changes
   useEffect(() => {
@@ -53,6 +69,12 @@ export const TrackStatus: React.FC<TrackStatusProps> = ({
 
     // Sync latest messages
     setMessages(db.getMessages(activeReport.id));
+
+    // Jump to latest message immediately on case open
+    requestAnimationFrame(() => scrollMessagesToBottom(false));
+    const t1 = setTimeout(() => scrollMessagesToBottom(false), 50);
+    const t2 = setTimeout(() => scrollMessagesToBottom(false), 150);
+    const t3 = setTimeout(() => scrollMessagesToBottom(false), 300);
 
     // Listen for new messages in real-time
     const unsubMsg = realtimeService.onCaseMessage(activeReport.id, (newMsg) => {
@@ -83,6 +105,9 @@ export const TrackStatus: React.FC<TrackStatusProps> = ({
     });
 
     return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
       unsubConn();
       unsubMsg();
       unsubTyping();
@@ -90,9 +115,11 @@ export const TrackStatus: React.FC<TrackStatusProps> = ({
     };
   }, [activeReport?.id]);
 
-  // Auto-scroll chat to bottom
+  // Auto-scroll chat to bottom on changes
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (activeReport) {
+      scrollMessagesToBottom(false);
+    }
   }, [messages, otherUserTyping]);
 
   const handleTrackSubmit = (e: React.FormEvent) => {
@@ -107,6 +134,11 @@ export const TrackStatus: React.FC<TrackStatusProps> = ({
 
     setActiveReport(found);
     setMessages(db.getMessages(found.id));
+
+    // Instant jump to bottom
+    requestAnimationFrame(() => scrollMessagesToBottom(false));
+    setTimeout(() => scrollMessagesToBottom(false), 50);
+    setTimeout(() => scrollMessagesToBottom(false), 150);
   };
 
   const handleChatInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -390,7 +422,7 @@ export const TrackStatus: React.FC<TrackStatusProps> = ({
               </div>
 
               {/* Chat Message List */}
-              <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+              <div ref={messagesContainerRef} className="flex-1 overflow-y-auto space-y-3 pr-1">
                 {messages.length === 0 ? (
                   <div className="text-center py-12 text-xs text-slate-400">
                     ยังไม่มีข้อความสนทนา พิมพ์ข้อความเพื่อสื่อสารกับเจ้าหน้าที่สืบสวน
