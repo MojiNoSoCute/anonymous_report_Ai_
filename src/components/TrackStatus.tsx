@@ -3,13 +3,15 @@
  * ตรวจสอบความคืบหน้ารายงานพร้อมช่องทางสนทนาลับและอัปโหลดหลักฐานเพิ่มเติม
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Search, Lock, Check, Clock, AlertCircle, Send, UploadCloud, 
-  Trash2, Shield, Calendar, MapPin, MessageSquare, Paperclip, FileText, File
+  Trash2, Shield, Calendar, MapPin, MessageSquare, Paperclip, FileText, File,
+  Radio, Wifi, Sparkles
 } from 'lucide-react';
 import { ReportItem, ChatMessage, EvidenceFile } from '../types';
 import { db } from '../db/sqlite';
+import { realtimeService } from '../services/realtime';
 
 interface TrackStatusProps {
   initialReportId?: string;
@@ -35,6 +37,63 @@ export const TrackStatus: React.FC<TrackStatusProps> = ({
     return activeReport ? db.getMessages(activeReport.id) : [];
   });
   const [chatInput, setChatInput] = useState<string>('');
+  const [isWsConnected, setIsWsConnected] = useState<boolean>(realtimeService.getIsConnected());
+  const [otherUserTyping, setOtherUserTyping] = useState<string | null>(null);
+  const typingTimeoutRef = useRef<any>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Subscribe to real-time updates when activeReport changes
+  useEffect(() => {
+    const unsubConn = realtimeService.onConnectionChange(setIsWsConnected);
+
+    if (!activeReport) return unsubConn;
+
+    // Join case room
+    realtimeService.subscribe(activeReport.id, false);
+
+    // Sync latest messages
+    setMessages(db.getMessages(activeReport.id));
+
+    // Listen for new messages in real-time
+    const unsubMsg = realtimeService.onCaseMessage(activeReport.id, (newMsg) => {
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === newMsg.id)) return prev;
+        return [...prev, newMsg];
+      });
+      // Clear typing indicator when message arrives
+      setOtherUserTyping(null);
+    });
+
+    // Listen for typing events
+    const unsubTyping = realtimeService.onTyping(activeReport.id, (info) => {
+      if (info.userRole === 'investigator') {
+        if (info.isTyping) {
+          setOtherUserTyping(info.userName || 'เจ้าหน้าที่สืบสวน');
+        } else {
+          setOtherUserTyping(null);
+        }
+      }
+    });
+
+    // Listen for report status updates in real-time
+    const unsubReport = realtimeService.onReportUpdated((updatedReport) => {
+      if (updatedReport.id.toLowerCase() === activeReport.id.toLowerCase()) {
+        setActiveReport(updatedReport);
+      }
+    });
+
+    return () => {
+      unsubConn();
+      unsubMsg();
+      unsubTyping();
+      unsubReport();
+    };
+  }, [activeReport?.id]);
+
+  // Auto-scroll chat to bottom
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, otherUserTyping]);
 
   const handleTrackSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,18 +109,36 @@ export const TrackStatus: React.FC<TrackStatusProps> = ({
     setMessages(db.getMessages(found.id));
   };
 
+  const handleChatInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setChatInput(e.target.value);
+
+    if (activeReport) {
+      realtimeService.sendTyping(activeReport.id, 'reporter', 'คุณ (ผู้แจ้ง)', true);
+
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        if (activeReport) {
+          realtimeService.sendTyping(activeReport.id, 'reporter', 'คุณ (ผู้แจ้ง)', false);
+        }
+      }, 1500);
+    }
+  };
+
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!chatInput.trim() || !activeReport) return;
+    const textToSend = chatInput.trim();
+    if (!textToSend || !activeReport) return;
 
-    const newMsg = db.sendMessage(
+    // Send via WebSocket realtime service
+    realtimeService.sendMessage(
       activeReport.id,
       'reporter',
       'คุณ (ผู้แจ้ง)',
-      chatInput.trim()
+      textToSend
     );
 
-    setMessages(prev => [...prev, newMsg]);
+    // Stop typing
+    realtimeService.sendTyping(activeReport.id, 'reporter', 'คุณ (ผู้แจ้ง)', false);
     setChatInput('');
   };
 
@@ -299,9 +376,17 @@ export const TrackStatus: React.FC<TrackStatusProps> = ({
             
             {/* Secret Chat */}
             <div className="bg-white border border-slate-200/80 rounded-2xl p-5 flex flex-col h-[480px] shadow-xs">
-              <div className="flex items-center gap-2 mb-4 border-b border-slate-100 pb-3">
-                <MessageSquare className="w-5 h-5 text-rose-900" />
-                <h3 className="text-sm font-bold text-slate-900">ช่องทางสนทนาลับ (Encrypted Chat)</h3>
+              <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="w-5 h-5 text-rose-900" />
+                  <h3 className="text-sm font-bold text-slate-900">ช่องทางสนทนาลับ (Encrypted Chat)</h3>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-full ${isWsConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`}></span>
+                  <span className="text-[11px] font-bold text-slate-600">
+                    {isWsConnected ? 'สนทนาสด Real-time' : 'กำลังเชื่อมต่อ'}
+                  </span>
+                </div>
               </div>
 
               {/* Chat Message List */}
@@ -333,6 +418,22 @@ export const TrackStatus: React.FC<TrackStatusProps> = ({
                     </div>
                   ))
                 )}
+
+                {/* Real-time Typing Indicator */}
+                {otherUserTyping && (
+                  <div className="flex flex-col items-start animate-fade-in">
+                    <span className="text-[10px] text-slate-400 mb-1 px-1 flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-rose-600 animate-spin" />
+                      <span>{otherUserTyping} กำลังพิมพ์...</span>
+                    </span>
+                    <div className="bg-slate-100 border border-slate-200 rounded-2xl rounded-tl-none px-3.5 py-2.5 flex items-center gap-1.5 shadow-2xs">
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                    </div>
+                  </div>
+                )}
+                <div ref={messagesEndRef} />
               </div>
 
               {/* Chat Input Bar */}
@@ -341,12 +442,13 @@ export const TrackStatus: React.FC<TrackStatusProps> = ({
                   type="text"
                   placeholder="พิมพ์ข้อความตอบกลับอย่างปลอดภัย..."
                   value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
+                  onChange={handleChatInputChange}
                   className="flex-1 border border-slate-200 bg-slate-50 rounded-xl p-2.5 text-xs focus:border-rose-900 focus:bg-white focus:ring-2 focus:ring-rose-900/10 outline-none transition-all"
                 />
                 <button
                   type="submit"
-                  className="bg-rose-900 hover:bg-rose-800 text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center cursor-pointer transition-all shadow-xs active:scale-95"
+                  disabled={!chatInput.trim()}
+                  className="bg-rose-900 hover:bg-rose-800 disabled:opacity-50 text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center cursor-pointer transition-all shadow-xs active:scale-95"
                 >
                   <Send className="w-4 h-4 text-rose-200" />
                 </button>

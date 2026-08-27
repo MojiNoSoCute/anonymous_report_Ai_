@@ -74,3 +74,19 @@ export interface DashboardStats {
   resolutionRatePercent: number;
   criticalCases: number;
 }
+
+export type WsClientEvent = 
+  | { type: 'subscribe'; caseId?: string; isAdmin?: boolean }
+  | { type: 'unsubscribe'; caseId?: string }
+  | { type: 'chat_message'; reportId: string; senderRole: 'investigator' | 'reporter'; senderName: string; message: string }
+  | { type: 'typing'; caseId: string; userRole: 'investigator' | 'reporter'; userName: string; isTyping: boolean }
+  | { type: 'ping' };
+
+export type WsServerEvent =
+  | { type: 'subscribed'; caseId?: string }
+  | { type: 'new_message'; reportId: string; message: ChatMessage }
+  | { type: 'typing_status'; caseId: string; userRole: 'investigator' | 'reporter'; userName: string; isTyping: boolean }
+  | { type: 'report_updated'; report: ReportItem }
+  | { type: 'report_created'; report: ReportItem }
+  | { type: 'report_deleted'; reportId: string }
+  | { type: 'pong' };

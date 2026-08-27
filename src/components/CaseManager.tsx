@@ -6,15 +6,16 @@
  * - โทนสีเดิม (Rich Crimson & Warm Accents)
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Shield, Search, Download, ChevronLeft, ChevronRight, X, Eye, 
   MessageSquare, Trash2, Edit3, Save, Video, Image as ImageIcon, 
   FileText, Play, Upload, CheckCircle2, AlertTriangle, AlertOctagon, UserPlus, FileSpreadsheet,
-  Lock, Send, Sparkles, Clock, RefreshCw
+  Lock, Send, Sparkles, Clock, RefreshCw, Radio
 } from 'lucide-react';
 import { ReportItem, ReportStatus, UrgencyLevel, CategoryType, EvidenceFile, ChatMessage, UserSession } from '../types';
 import { db } from '../db/sqlite';
+import { realtimeService } from '../services/realtime';
 
 interface CaseManagerProps {
   onOpenChatWithCase?: (caseId: string) => void;
@@ -37,11 +38,84 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
   const [activeChatCase, setActiveChatCase] = useState<ReportItem | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [adminChatInput, setAdminChatInput] = useState<string>('');
+  const [isWsConnected, setIsWsConnected] = useState<boolean>(realtimeService.getIsConnected());
+  const [reporterTyping, setReporterTyping] = useState<string | null>(null);
+  const typingTimeoutRef = useRef<any>(null);
+  const adminChatEndRef = useRef<HTMLDivElement>(null);
+  const [, setTick] = useState<number>(0);
+
+  // Listen to global incoming messages to update counts in real-time
+  useEffect(() => {
+    realtimeService.subscribe(undefined, true);
+    const unsubConn = realtimeService.onConnectionChange(setIsWsConnected);
+    const unsubGlobal = realtimeService.onGlobalMessage(() => {
+      // Trigger re-render so badge counts update live
+      setTick(t => t + 1);
+    });
+
+    return () => {
+      unsubConn();
+      unsubGlobal();
+    };
+  }, []);
+
+  // When activeChatCase is opened
+  useEffect(() => {
+    if (!activeChatCase) return;
+
+    realtimeService.subscribe(activeChatCase.id, true);
+    setChatMessages(db.getMessages(activeChatCase.id));
+
+    const unsubMsg = realtimeService.onCaseMessage(activeChatCase.id, (newMsg) => {
+      setChatMessages((prev) => {
+        if (prev.some(m => m.id === newMsg.id)) return prev;
+        return [...prev, newMsg];
+      });
+      setReporterTyping(null);
+    });
+
+    const unsubTyping = realtimeService.onTyping(activeChatCase.id, (info) => {
+      if (info.userRole === 'reporter') {
+        if (info.isTyping) {
+          setReporterTyping(info.userName || 'ผู้แจ้งเบาะแส');
+        } else {
+          setReporterTyping(null);
+        }
+      }
+    });
+
+    return () => {
+      unsubMsg();
+      unsubTyping();
+    };
+  }, [activeChatCase?.id]);
+
+  // Auto-scroll admin chat
+  useEffect(() => {
+    adminChatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages, reporterTyping]);
 
   const handleOpenAdminChat = (report: ReportItem) => {
     setActiveChatCase(report);
     setChatMessages(db.getMessages(report.id));
     setAdminChatInput('');
+    setReporterTyping(null);
+  };
+
+  const handleAdminChatInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setAdminChatInput(e.target.value);
+
+    if (activeChatCase) {
+      const senderName = user?.name ? user.name : 'เจ้าหน้าที่สืบสวน';
+      realtimeService.sendTyping(activeChatCase.id, 'investigator', senderName, true);
+
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        if (activeChatCase) {
+          realtimeService.sendTyping(activeChatCase.id, 'investigator', senderName, false);
+        }
+      }, 1500);
+    }
   };
 
   const handleSendAdminChatMessage = (e?: React.FormEvent, customText?: string) => {
@@ -53,14 +127,14 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
       ? `${user.name} (${user.role === 'admin' ? 'ผู้ดูแลระบบ' : 'เจ้าหน้าที่สืบสวน'})` 
       : 'เจ้าหน้าที่สืบสวน (Officer)';
 
-    const newMsg = db.sendMessage(
+    realtimeService.sendMessage(
       activeChatCase.id,
       'investigator',
       senderName,
       textToSend
     );
 
-    setChatMessages(prev => [...prev, newMsg]);
+    realtimeService.sendTyping(activeChatCase.id, 'investigator', senderName, false);
     setAdminChatInput('');
   };
 
@@ -1078,9 +1152,15 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
                 <Lock className="w-3.5 h-3.5 text-rose-700" />
                 <span className="font-medium">ช่องทางสื่อสารเข้ารหัส 2 ทาง ปลอดภัยและรักษาสภาพนิรนามของผู้แจ้ง</span>
               </div>
-              <span className="text-[10px] text-slate-400 font-mono">
-                {chatMessages.length} ข้อความ
-              </span>
+              <div className="flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full ${isWsConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`}></span>
+                <span className="text-[10px] text-slate-500 font-medium">
+                  {isWsConnected ? 'เชื่อมต่อสด Real-time' : 'ออฟไลน์'}
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  • {chatMessages.length} ข้อความ
+                </span>
+              </div>
             </div>
 
             {/* Chat Messages List */}
@@ -1124,6 +1204,22 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
                   );
                 })
               )}
+
+              {/* Real-time Typing Indicator */}
+              {reporterTyping && (
+                <div className="flex flex-col items-start animate-fade-in">
+                  <span className="text-[10px] text-slate-400 mb-1 px-1 flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-rose-600 animate-spin" />
+                    <span>{reporterTyping} กำลังพิมพ์...</span>
+                  </span>
+                  <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-none px-3.5 py-2.5 flex items-center gap-1.5 shadow-2xs">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                  </div>
+                </div>
+              )}
+              <div ref={adminChatEndRef} />
             </div>
 
             {/* Quick Response Templates */}
@@ -1152,7 +1248,7 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
                 type="text"
                 placeholder="พิมพ์ข้อความตอบกลับในฐานะเจ้าหน้าที่สืบสวน..."
                 value={adminChatInput}
-                onChange={(e) => setAdminChatInput(e.target.value)}
+                onChange={handleAdminChatInputChange}
                 autoFocus
                 className="flex-1 border border-slate-200 bg-slate-50 rounded-xl p-2.5 text-xs focus:border-rose-900 focus:bg-white focus:ring-2 focus:ring-rose-900/10 outline-none transition-all"
               />

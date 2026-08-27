@@ -243,17 +243,19 @@ class SQLiteDatabase {
 
   // --- Reports CRUD ---
   public getReports(): ReportItem[] {
-    return [...this.reports];
+    return this.reports.map(r => ({ ...r, evidenceFiles: [...r.evidenceFiles] }));
   }
 
   public getReportById(id: string): ReportItem | undefined {
-    return this.reports.find(r => r.id.toLowerCase() === id.trim().toLowerCase());
+    const found = this.reports.find(r => r.id.toLowerCase() === id.trim().toLowerCase());
+    return found ? { ...found, evidenceFiles: [...found.evidenceFiles] } : undefined;
   }
 
   public getReportByIdAndPin(id: string, pin: string): ReportItem | undefined {
-    return this.reports.find(
+    const found = this.reports.find(
       r => r.id.toLowerCase() === id.trim().toLowerCase() && r.pin === pin.trim()
     );
+    return found ? { ...found, evidenceFiles: [...found.evidenceFiles] } : undefined;
   }
 
   public createReport(
@@ -395,7 +397,7 @@ class SQLiteDatabase {
 
   // --- Secret Chat Messages ---
   public getMessages(reportId: string): ChatMessage[] {
-    return this.messages[reportId] || [];
+    return this.messages[reportId] ? [...this.messages[reportId]] : [];
   }
 
   public sendMessage(reportId: string, senderRole: 'investigator' | 'reporter', senderName: string, text: string): ChatMessage {
