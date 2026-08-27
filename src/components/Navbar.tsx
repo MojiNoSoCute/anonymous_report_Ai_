@@ -3,9 +3,11 @@
  * ดีไซน์แบบ Minimalist ชิดซ้าย-ขวา คลีน สบายตา ไม่ไว้ตรงกลาง
  */
 
-import React from 'react';
-import { Lock, FileText, Activity, LogIn, UserCheck, Sparkles, LayoutDashboard, Compass, LogOut, BookOpen } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Lock, FileText, Activity, LogIn, UserCheck, Sparkles, LayoutDashboard, Compass, LogOut, BookOpen, MessageSquare } from 'lucide-react';
 import { UserSession } from '../types';
+import { db } from '../db/sqlite';
+import { realtimeService } from '../services/realtime';
 import npruLogo from '../assets/images/npru_official_logo_1786581106005.jpg';
 
 interface NavbarProps {
@@ -26,6 +28,20 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenHelpModal
 }) => {
   const logoUrl = npruLogo;
+  const [, setTick] = useState(0);
+
+  // Subscribe to real-time message changes to update global notification badge in navbar
+  useEffect(() => {
+    if (!user.isAuthenticated) return;
+    const unsubMsg = realtimeService.onGlobalMessage(() => setTick(t => t + 1));
+    const unsubRead = realtimeService.onMessagesRead(() => setTick(t => t + 1));
+    return () => {
+      unsubMsg();
+      unsubRead();
+    };
+  }, [user.isAuthenticated]);
+
+  const totalAdminUnread = user.isAuthenticated ? db.getTotalUnreadCountForAdmin() : 0;
 
   // Public items
   const publicNavItems = [
@@ -35,7 +51,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   // Admin / Staff items
   const adminNavItems = [
-    { id: 'cases' as const, label: 'จัดการรายงานทั้งหมด', icon: LayoutDashboard },
+    { id: 'cases' as const, label: 'จัดการรายงานทั้งหมด', icon: LayoutDashboard, unreadCount: totalAdminUnread },
     { id: 'analytics' as const, label: 'สถิติ & สรุปผล', icon: Activity },
   ];
 
@@ -75,11 +91,12 @@ export const Navbar: React.FC<NavbarProps> = ({
               adminNavItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = currentTab === item.id;
+                const unread = item.unreadCount || 0;
                 return (
                   <button
                     key={item.id}
                     onClick={() => setCurrentTab(item.id)}
-                    className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 cursor-pointer relative ${
                       isActive
                         ? 'bg-rose-900/90 text-white border border-rose-700/80 shadow-xs'
                         : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
@@ -87,6 +104,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                   >
                     <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-rose-300' : 'text-slate-400'}`} />
                     <span>{item.label}</span>
+                    {unread > 0 && (
+                      <span className="bg-red-600 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full border border-red-400 animate-pulse ml-0.5">
+                        {unread}
+                      </span>
+                    )}
                   </button>
                 );
               })
@@ -160,6 +182,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           adminNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentTab === item.id;
+            const unread = item.unreadCount || 0;
             return (
               <button
                 key={item.id}
@@ -172,6 +195,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 <Icon className="w-3.5 h-3.5" />
                 <span>{item.label}</span>
+                {unread > 0 && (
+                  <span className="bg-red-600 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full border border-red-400 animate-pulse">
+                    {unread}
+                  </span>
+                )}
               </button>
             );
           })

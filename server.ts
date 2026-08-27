@@ -164,7 +164,8 @@ let serverMessages: Record<string, any[]> = {
       senderRole: 'investigator',
       senderName: 'เจ้าหน้าที่สืบสวน',
       message: 'เรียนผู้แจ้งเบาะแส, ขอขอบคุณสำหรับข้อมูลเพิ่มเติม ทางเราต้องการสอบถามว่าเหตุการณ์ที่ระบุเกิดขึ้นที่สาขาใดครับ?',
-      timestamp: '13 ต.ค. 14:20'
+      timestamp: '13 ต.ค. 14:20',
+      readByAdmin: true
     },
     {
       id: 'msg-2',
@@ -172,7 +173,8 @@ let serverMessages: Record<string, any[]> = {
       senderRole: 'reporter',
       senderName: 'คุณ (ผู้แจ้ง)',
       message: 'เกิดขึ้นที่สาขาสำนักงานใหญ่ ชั้น 14 ครับ',
-      timestamp: '13 ต.ค. 15:05'
+      timestamp: '13 ต.ค. 15:05',
+      readByAdmin: true
     },
     {
       id: 'msg-3',
@@ -180,7 +182,8 @@ let serverMessages: Record<string, any[]> = {
       senderRole: 'investigator',
       senderName: 'เจ้าหน้าที่สืบสวน',
       message: 'รับทราบครับ หากมีหลักฐานภาพถ่ายเพิ่มเติม สามารถอัปโหลดในระบบได้เลยครับ',
-      timestamp: '14 ต.ค. 09:10'
+      timestamp: '14 ต.ค. 09:10',
+      readByAdmin: true
     }
   ]
 };
@@ -386,13 +389,28 @@ app.post('/api/reports/:id/messages', (req, res) => {
     senderRole: senderRole || 'reporter',
     senderName: senderName || 'ผู้ใช้',
     message: message.trim(),
-    timestamp: timeStr
+    timestamp: timeStr,
+    readByAdmin: senderRole === 'investigator'
   };
 
   serverMessages[reportId].push(newMsg);
   broadcast({ type: 'new_message', reportId, message: newMsg }, reportId);
 
   res.json({ success: true, message: newMsg });
+});
+
+// Mark messages as read by admin
+app.post('/api/reports/:id/mark-read', (req, res) => {
+  const reportId = req.params.id;
+  if (serverMessages[reportId]) {
+    serverMessages[reportId].forEach((m: any) => {
+      if (m.senderRole === 'reporter') {
+        m.readByAdmin = true;
+      }
+    });
+    broadcast({ type: 'messages_read', reportId }, reportId);
+  }
+  res.json({ success: true, reportId });
 });
 
 // Start Server and attach WebSocket
@@ -420,6 +438,16 @@ async function startServer() {
           ws.send(JSON.stringify({ type: 'subscribed', caseId: data.caseId }));
         } else if (data.type === 'unsubscribe') {
           conn.caseId = undefined;
+        } else if (data.type === 'mark_read') {
+          const { reportId } = data;
+          if (reportId && serverMessages[reportId]) {
+            serverMessages[reportId].forEach((m: any) => {
+              if (m.senderRole === 'reporter') {
+                m.readByAdmin = true;
+              }
+            });
+            broadcast({ type: 'messages_read', reportId }, reportId);
+          }
         } else if (data.type === 'chat_message') {
           const { reportId, senderRole, senderName, message } = data;
           if (reportId && message) {
@@ -434,7 +462,8 @@ async function startServer() {
               senderRole: senderRole || 'reporter',
               senderName: senderName || 'ผู้ใช้',
               message: message.trim(),
-              timestamp: timeStr
+              timestamp: timeStr,
+              readByAdmin: senderRole === 'investigator'
             };
             serverMessages[reportId].push(newMsg);
             broadcast({ type: 'new_message', reportId, message: newMsg }, reportId);

@@ -33,6 +33,7 @@ export interface ChatMessage {
   senderName: string;
   message: string;
   timestamp: string;
+  readByAdmin?: boolean;
 }
 
 export interface ReportItem {
@@ -80,12 +81,14 @@ export type WsClientEvent =
   | { type: 'unsubscribe'; caseId?: string }
   | { type: 'chat_message'; reportId: string; senderRole: 'investigator' | 'reporter'; senderName: string; message: string }
   | { type: 'typing'; caseId: string; userRole: 'investigator' | 'reporter'; userName: string; isTyping: boolean }
+  | { type: 'mark_read'; reportId: string }
   | { type: 'ping' };
 
 export type WsServerEvent =
   | { type: 'subscribed'; caseId?: string }
   | { type: 'new_message'; reportId: string; message: ChatMessage }
   | { type: 'typing_status'; caseId: string; userRole: 'investigator' | 'reporter'; userName: string; isTyping: boolean }
+  | { type: 'messages_read'; reportId: string }
   | { type: 'report_updated'; report: ReportItem }
   | { type: 'report_created'; report: ReportItem }
   | { type: 'report_deleted'; reportId: string }

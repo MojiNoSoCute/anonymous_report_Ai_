@@ -138,7 +138,8 @@ const INITIAL_MESSAGES: Record<string, ChatMessage[]> = {
       senderRole: 'investigator',
       senderName: 'เจ้าหน้าที่สืบสวน',
       message: 'เรียนผู้แจ้งเบาะแส, ขอขอบคุณสำหรับข้อมูลเพิ่มเติม ทางเราต้องการสอบถามว่าเหตุการณ์ที่ระบุเกิดขึ้นที่สาขาใดครับ?',
-      timestamp: '13 ต.ค. 14:20'
+      timestamp: '13 ต.ค. 14:20',
+      readByAdmin: true
     },
     {
       id: 'msg-2',
@@ -146,7 +147,8 @@ const INITIAL_MESSAGES: Record<string, ChatMessage[]> = {
       senderRole: 'reporter',
       senderName: 'คุณ (ผู้แจ้ง)',
       message: 'เกิดขึ้นที่สาขาสำนักงานใหญ่ ชั้น 14 ครับ',
-      timestamp: '13 ต.ค. 15:05'
+      timestamp: '13 ต.ค. 15:05',
+      readByAdmin: true
     },
     {
       id: 'msg-3',
@@ -154,7 +156,8 @@ const INITIAL_MESSAGES: Record<string, ChatMessage[]> = {
       senderRole: 'investigator',
       senderName: 'เจ้าหน้าที่สืบสวน',
       message: 'รับทราบครับ หากมีหลักฐานภาพถ่ายเพิ่มเติม สามารถอัปโหลดในระบบได้เลยครับ',
-      timestamp: '14 ต.ค. 09:10'
+      timestamp: '14 ต.ค. 09:10',
+      readByAdmin: true
     }
   ]
 };
@@ -400,6 +403,38 @@ class SQLiteDatabase {
     return this.messages[reportId] ? [...this.messages[reportId]] : [];
   }
 
+  public getUnreadMessagesCount(reportId: string): number {
+    const list = this.messages[reportId];
+    if (!list || list.length === 0) return 0;
+    return list.filter(m => m.senderRole === 'reporter' && m.readByAdmin !== true).length;
+  }
+
+  public getTotalUnreadCountForAdmin(): number {
+    let total = 0;
+    for (const key in this.messages) {
+      total += this.getUnreadMessagesCount(key);
+    }
+    return total;
+  }
+
+  public markMessagesAsReadByAdmin(reportId: string): boolean {
+    const list = this.messages[reportId];
+    if (!list || list.length === 0) return false;
+
+    let modified = false;
+    for (const msg of list) {
+      if (msg.senderRole === 'reporter' && msg.readByAdmin !== true) {
+        msg.readByAdmin = true;
+        modified = true;
+      }
+    }
+
+    if (modified) {
+      this.persist();
+    }
+    return modified;
+  }
+
   public sendMessage(reportId: string, senderRole: 'investigator' | 'reporter', senderName: string, text: string): ChatMessage {
     if (!this.messages[reportId]) {
       this.messages[reportId] = [];
@@ -409,12 +444,13 @@ class SQLiteDatabase {
     const timeStr = `${now.getDate()} ต.ค. ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
     const newMsg: ChatMessage = {
-      id: `msg-${Date.now()}`,
+      id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       reportId,
       senderRole,
       senderName,
       message: text,
-      timestamp: timeStr
+      timestamp: timeStr,
+      readByAdmin: senderRole === 'investigator'
     };
 
     this.messages[reportId].push(newMsg);

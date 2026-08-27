@@ -9,6 +9,7 @@ import { db } from '../db/sqlite';
 type MessageListener = (msg: ChatMessage) => void;
 type TypingListener = (info: { caseId: string; userRole: string; userName: string; isTyping: boolean }) => void;
 type ReportUpdateListener = (report: ReportItem) => void;
+type MessagesReadListener = (reportId: string) => void;
 type ConnectionListener = (connected: boolean) => void;
 
 class RealtimeService {
@@ -23,6 +24,7 @@ class RealtimeService {
   private globalMessageListeners: Set<MessageListener> = new Set();
   private typingListeners: Map<string, Set<TypingListener>> = new Map();
   private reportUpdateListeners: Set<ReportUpdateListener> = new Set();
+  private messagesReadListeners: Set<MessagesReadListener> = new Set();
   private connectionListeners: Set<ConnectionListener> = new Set();
 
   constructor() {
@@ -123,6 +125,10 @@ class RealtimeService {
 
       // Notify global admin listeners
       this.globalMessageListeners.forEach(cb => cb(message));
+    } else if (event.type === 'messages_read') {
+      const { reportId } = event;
+      db.markMessagesAsReadByAdmin(reportId);
+      this.messagesReadListeners.forEach(cb => cb(reportId));
     } else if (event.type === 'typing_status') {
       const listeners = this.typingListeners.get(event.caseId);
       if (listeners) {
@@ -130,6 +136,24 @@ class RealtimeService {
       }
     } else if (event.type === 'report_updated') {
       this.reportUpdateListeners.forEach(cb => cb(event.report));
+    }
+  }
+
+  public markAsRead(reportId: string): void {
+    db.markMessagesAsReadByAdmin(reportId);
+    this.messagesReadListeners.forEach(cb => cb(reportId));
+
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      const payload: WsClientEvent = {
+        type: 'mark_read',
+        reportId
+      };
+      this.ws.send(JSON.stringify(payload));
+    } else {
+      // Fallback to fetch API
+      try {
+        fetch(`/api/reports/${reportId}/mark-read`, { method: 'POST' }).catch(() => {});
+      } catch {}
     }
   }
 
@@ -217,6 +241,13 @@ class RealtimeService {
     this.reportUpdateListeners.add(callback);
     return () => {
       this.reportUpdateListeners.delete(callback);
+    };
+  }
+
+  public onMessagesRead(callback: MessagesReadListener): () => void {
+    this.messagesReadListeners.add(callback);
+    return () => {
+      this.messagesReadListeners.delete(callback);
     };
   }
 

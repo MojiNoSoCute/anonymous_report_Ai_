@@ -52,10 +52,14 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
       // Trigger re-render so badge counts update live
       setTick(t => t + 1);
     });
+    const unsubRead = realtimeService.onMessagesRead(() => {
+      setTick(t => t + 1);
+    });
 
     return () => {
       unsubConn();
       unsubGlobal();
+      unsubRead();
     };
   }, []);
 
@@ -64,6 +68,9 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
     if (!activeChatCase) return;
 
     realtimeService.subscribe(activeChatCase.id, true);
+    
+    // Mark as read immediately upon opening
+    realtimeService.markAsRead(activeChatCase.id);
     setChatMessages(db.getMessages(activeChatCase.id));
 
     const unsubMsg = realtimeService.onCaseMessage(activeChatCase.id, (newMsg) => {
@@ -72,6 +79,11 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
         return [...prev, newMsg];
       });
       setReporterTyping(null);
+
+      // If new message arrives from reporter while chat window is active, mark it as read immediately
+      if (newMsg.senderRole === 'reporter') {
+        realtimeService.markAsRead(activeChatCase.id);
+      }
     });
 
     const unsubTyping = realtimeService.onTyping(activeChatCase.id, (info) => {
@@ -100,6 +112,10 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
     setChatMessages(db.getMessages(report.id));
     setAdminChatInput('');
     setReporterTyping(null);
+
+    // Mark as read immediately when admin opens chat
+    realtimeService.markAsRead(report.id);
+    setTick(t => t + 1);
   };
 
   const handleAdminChatInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -537,18 +553,28 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
                           </button>
 
                           {/* Chat Secret Channel */}
-                          <button
-                            onClick={() => handleOpenAdminChat(r)}
-                            className="p-1.5 text-slate-600 hover:text-red-700 hover:bg-rose-100 rounded-lg transition-colors cursor-pointer relative"
-                            title="เปิดแชทสนทนากับผู้แจ้งเบาะแส"
-                          >
-                            <MessageSquare className="w-4 h-4" />
-                            {db.getMessages(r.id).length > 0 && (
-                              <span className="absolute -top-1 -right-1 bg-red-700 text-white text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center border border-white shadow-2xs">
-                                {db.getMessages(r.id).length}
-                              </span>
-                            )}
-                          </button>
+                          {(() => {
+                            const unreadCount = db.getUnreadMessagesCount(r.id);
+                            const totalMessages = db.getMessages(r.id).length;
+                            return (
+                              <button
+                                onClick={() => handleOpenAdminChat(r)}
+                                className={`p-1.5 rounded-lg transition-colors cursor-pointer relative ${
+                                  unreadCount > 0 
+                                    ? 'text-red-700 bg-rose-100/90 ring-1 ring-red-400/50 hover:bg-rose-200' 
+                                    : 'text-slate-600 hover:text-red-700 hover:bg-rose-100'
+                                }`}
+                                title={unreadCount > 0 ? `มีข้อความใหม่ ${unreadCount} ข้อความ (รวมทั้งหมด ${totalMessages})` : `เปิดแชทสนทนากับผู้แจ้งเบาะแส (${totalMessages} ข้อความ)`}
+                              >
+                                <MessageSquare className="w-4 h-4" />
+                                {unreadCount > 0 && (
+                                  <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[9px] font-black min-w-[17px] h-[17px] px-1 rounded-full flex items-center justify-center border-2 border-white shadow-xs animate-pulse">
+                                    {unreadCount}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })()}
 
                           {/* Delete Button */}
                           <button
@@ -870,33 +896,51 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
                 </div>
 
                 {/* 2-Way Encrypted Chat Bar inside Modal */}
-                <div className="bg-gradient-to-r from-rose-950 via-slate-900 to-rose-950 p-4 rounded-2xl border border-rose-800/60 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-red-700/90 text-white flex items-center justify-center shadow-xs shrink-0">
-                      <MessageSquare className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-rose-200 flex items-center gap-1.5">
-                        <span>ช่องทางสนทนาลับกับผู้แจ้ง (Encrypted 2-Way Chat)</span>
-                        <span className="bg-rose-500/20 text-rose-300 text-[10px] font-mono px-2 py-0.5 rounded-full border border-rose-500/30">
-                          {db.getMessages(activeModalCase.id).length} ข้อความ
-                        </span>
-                      </h4>
-                      <p className="text-[11px] text-slate-300/80 mt-0.5">
-                        สามารถส่งข้อความสอบถามรายละเอียดหรือขอหลักฐานเพิ่มเติมกับผู้แจ้งเบาะแสได้โดยตรง
-                      </p>
-                    </div>
-                  </div>
+                {(() => {
+                  const modalUnreadCount = db.getUnreadMessagesCount(activeModalCase.id);
+                  const modalTotalCount = db.getMessages(activeModalCase.id).length;
+                  return (
+                    <div className="bg-gradient-to-r from-rose-950 via-slate-900 to-rose-950 p-4 rounded-2xl border border-rose-800/60 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-red-700/90 text-white flex items-center justify-center shadow-xs shrink-0 relative">
+                          <MessageSquare className="w-5 h-5" />
+                          {modalUnreadCount > 0 && (
+                            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center border border-slate-900 animate-pulse">
+                              {modalUnreadCount}
+                            </span>
+                          )}
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-bold text-rose-200 flex items-center gap-1.5">
+                            <span>ช่องทางสนทนาลับกับผู้แจ้ง (Encrypted 2-Way Chat)</span>
+                            {modalUnreadCount > 0 ? (
+                              <span className="bg-red-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full border border-red-400 shadow-xs animate-pulse flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping"></span>
+                                มีข้อความใหม่ ({modalUnreadCount})
+                              </span>
+                            ) : (
+                              <span className="bg-rose-500/20 text-rose-300 text-[10px] font-mono px-2 py-0.5 rounded-full border border-rose-500/30">
+                                {modalTotalCount} ข้อความ
+                              </span>
+                            )}
+                          </h4>
+                          <p className="text-[11px] text-slate-300/80 mt-0.5">
+                            สามารถส่งข้อความสอบถามรายละเอียดหรือขอหลักฐานเพิ่มเติมกับผู้แจ้งเบาะแสได้โดยตรง
+                          </p>
+                        </div>
+                      </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handleOpenAdminChat(activeModalCase)}
-                    className="w-full sm:w-auto bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0 active:scale-95 border border-red-500/40"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5" />
-                    <span>เปิดห้องแชท ({db.getMessages(activeModalCase.id).length})</span>
-                  </button>
-                </div>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenAdminChat(activeModalCase)}
+                        className="w-full sm:w-auto bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-md flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0 active:scale-95 border border-red-500/40"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>เปิดห้องแชท {modalUnreadCount > 0 ? `(ใหม่ ${modalUnreadCount})` : `(${modalTotalCount})`}</span>
+                      </button>
+                    </div>
+                  );
+                })()}
 
                 {/* Evidence Files & Media Viewer Section */}
                 <div className="space-y-2 border-t border-rose-100 pt-3">
