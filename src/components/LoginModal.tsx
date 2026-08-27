@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { Lock, Shield, X, AlertCircle } from 'lucide-react';
 import { UserSession } from '../types';
+import npruLogo from '../assets/images/npru_official_logo_1786581106005.jpg';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -50,7 +51,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onLogin
 
         <div className="text-center space-y-1">
           <img 
-            src="/npru_logo.png" 
+            src={npruLogo} 
             alt="NPRU Logo" 
             className="h-12 w-auto object-contain mx-auto mb-2 bg-white p-1 rounded-xl border border-rose-200 shadow-xs" 
             referrerPolicy="no-referrer" 

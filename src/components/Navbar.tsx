@@ -4,8 +4,9 @@
  */
 
 import React from 'react';
-import { Lock, FileText, Activity, LogIn, UserCheck, Sparkles, LayoutDashboard, Compass, LogOut } from 'lucide-react';
+import { Lock, FileText, Activity, LogIn, UserCheck, Sparkles, LayoutDashboard, Compass, LogOut, BookOpen, Code } from 'lucide-react';
 import { UserSession } from '../types';
+import npruLogo from '../assets/images/npru_official_logo_1786581106005.jpg';
 
 interface NavbarProps {
   currentTab: 'submit' | 'track' | 'cases' | 'analytics' | 'code';
@@ -13,6 +14,7 @@ interface NavbarProps {
   user: UserSession;
   onOpenLogin: () => void;
   onLogout: () => void;
+  onOpenHelpModal?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -20,20 +22,23 @@ export const Navbar: React.FC<NavbarProps> = ({
   setCurrentTab,
   user,
   onOpenLogin,
-  onLogout
+  onLogout,
+  onOpenHelpModal
 }) => {
-  const logoUrl = '/npru_logo.png';
+  const logoUrl = npruLogo;
 
   // Public items
   const publicNavItems = [
     { id: 'submit' as const, label: 'สร้างรายงานใหม่', icon: FileText },
     { id: 'track' as const, label: 'ติดตามสถานะ', icon: Lock },
+    { id: 'code' as const, label: 'โค้ด Python & สถาปัตยกรรม', icon: Code },
   ];
 
   // Admin / Staff items
   const adminNavItems = [
     { id: 'cases' as const, label: 'จัดการรายงานทั้งหมด', icon: LayoutDashboard },
     { id: 'analytics' as const, label: 'สถิติ & สรุปผล', icon: Activity },
+    { id: 'code' as const, label: 'โค้ด Python & สถาปัตยกรรม', icon: Code },
   ];
 
   return (
@@ -109,10 +114,21 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </nav>
 
-          {/* User Account / Login Button */}
-          <div className="flex items-center shrink-0">
+          {/* User Account / Login Button & Help Guide */}
+          <div className="flex items-center gap-2 shrink-0">
+            {onOpenHelpModal && (
+              <button
+                onClick={onOpenHelpModal}
+                className="bg-slate-800 hover:bg-slate-700 text-rose-200 hover:text-white text-xs font-bold px-3 py-2 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer border border-rose-900/40"
+                title="เปิดคู่มือการใช้งานระบบ (README & How to Use)"
+              >
+                <BookOpen className="w-3.5 h-3.5 text-rose-400" />
+                <span>คู่มือการใช้งาน</span>
+              </button>
+            )}
+
             {user.isAuthenticated ? (
-              <div className="flex items-center gap-2.5 pl-3 border-l border-slate-800">
+              <div className="flex items-center gap-2.5 pl-2 border-l border-slate-800">
                 <div className="text-right">
                   <p className="text-xs font-bold text-white leading-tight">{user.name}</p>
                   <p className="text-[10px] text-rose-400 font-semibold leading-none mt-0.5">{user.role}</p>

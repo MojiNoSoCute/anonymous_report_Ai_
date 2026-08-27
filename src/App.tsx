@@ -11,8 +11,10 @@ import { CaseManager } from './components/CaseManager';
 import { AnalyticsDashboard } from './components/AnalyticsDashboard';
 import { PythonFlaskCodeView } from './components/PythonFlaskCodeView';
 import { LoginModal } from './components/LoginModal';
+import { HelpGuideModal } from './components/HelpGuideModal';
 import { UserSession } from './types';
-import { Shield, Lock, FileCode, Heart } from 'lucide-react';
+import { Shield, Lock, FileCode, Heart, BookOpen } from 'lucide-react';
+import npruLogo from './assets/images/npru_official_logo_1786581106005.jpg';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<'submit' | 'track' | 'cases' | 'analytics' | 'code'>('submit');
@@ -23,6 +25,7 @@ export default function App() {
     role: 'guest'
   });
   const [isLoginOpen, setIsLoginOpen] = useState<boolean>(false);
+  const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
   const [trackedReportState, setTrackedReportState] = useState<{ id: string; pin: string }>({
     id: '',
     pin: ''
@@ -60,6 +63,7 @@ export default function App() {
         user={user}
         onOpenLogin={() => setIsLoginOpen(true)}
         onLogout={handleLogout}
+        onOpenHelpModal={() => setIsHelpOpen(true)}
       />
 
       {/* Dynamic Content Views */}
@@ -123,7 +127,7 @@ export default function App() {
           
           <div className="flex items-center gap-2.5">
             <img 
-              src="/npru_logo.png" 
+              src={npruLogo} 
               alt="NPRU Logo" 
               className="h-10 w-auto object-contain bg-white p-1 rounded-lg border border-rose-800/80 shadow-inner" 
               referrerPolicy="no-referrer" 
@@ -135,6 +139,13 @@ export default function App() {
           </div>
 
           <div className="flex flex-wrap justify-center gap-4 text-[11px]">
+            <button 
+              onClick={() => setIsHelpOpen(true)}
+              className="flex items-center gap-1.5 text-rose-200 hover:text-white transition-colors cursor-pointer bg-white/5 hover:bg-white/10 px-2.5 py-1 rounded-lg border border-rose-800/40"
+            >
+              <BookOpen className="w-3.5 h-3.5 text-rose-400" />
+              <span>คู่มือการใช้งาน (README)</span>
+            </button>
             <span className="flex items-center gap-1.5 text-rose-200/80">
               <Lock className="w-3.5 h-3.5 text-rose-400" />
               <span>AES-256 Encryption</span>
@@ -160,6 +171,20 @@ export default function App() {
           setUser(loggedInUser);
           // If logged in, navigate to Case Dashboard
           setCurrentTab('cases');
+        }}
+      />
+
+      {/* Help & Readme Modal */}
+      <HelpGuideModal
+        isOpen={isHelpOpen}
+        onClose={() => setIsHelpOpen(false)}
+        onNavigateToTab={(tab) => {
+          setCurrentTab(tab);
+          setIsHelpOpen(false);
+        }}
+        onOpenLogin={() => {
+          setIsHelpOpen(false);
+          setIsLoginOpen(true);
         }}
       />
 
