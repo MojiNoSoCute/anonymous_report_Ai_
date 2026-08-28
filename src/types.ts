@@ -48,6 +48,7 @@ export interface ReportItem {
   status: ReportStatus;
   statusLabelTh: string;
   assignedTo?: string;
+  adminNotes?: string; // บันทึกข้อความสืบสวนภายในของเจ้าหน้าที่/Admin
   createdAt: string;
   updatedAt: string;
   evidenceFiles: EvidenceFile[];
@@ -82,6 +83,8 @@ export type WsClientEvent =
   | { type: 'chat_message'; reportId: string; senderRole: 'investigator' | 'reporter'; senderName: string; message: string }
   | { type: 'typing'; caseId: string; userRole: 'investigator' | 'reporter'; userName: string; isTyping: boolean }
   | { type: 'mark_read'; reportId: string }
+  | { type: 'report_update'; report: ReportItem }
+  | { type: 'report_delete'; reportId: string }
   | { type: 'ping' };
 
 export type WsServerEvent =

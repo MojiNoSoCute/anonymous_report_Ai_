@@ -9,6 +9,7 @@ import { db } from '../db/sqlite';
 type MessageListener = (msg: ChatMessage) => void;
 type TypingListener = (info: { caseId: string; userRole: string; userName: string; isTyping: boolean }) => void;
 type ReportUpdateListener = (report: ReportItem) => void;
+type ReportDeleteListener = (reportId: string) => void;
 type MessagesReadListener = (reportId: string) => void;
 type ConnectionListener = (connected: boolean) => void;
 
@@ -24,6 +25,7 @@ class RealtimeService {
   private globalMessageListeners: Set<MessageListener> = new Set();
   private typingListeners: Map<string, Set<TypingListener>> = new Map();
   private reportUpdateListeners: Set<ReportUpdateListener> = new Set();
+  private reportDeleteListeners: Set<ReportDeleteListener> = new Set();
   private messagesReadListeners: Set<MessagesReadListener> = new Set();
   private connectionListeners: Set<ConnectionListener> = new Set();
 
@@ -135,8 +137,65 @@ class RealtimeService {
         listeners.forEach(cb => cb(event));
       }
     } else if (event.type === 'report_updated') {
+      db.syncReportFromServer(event.report);
       this.reportUpdateListeners.forEach(cb => cb(event.report));
+    } else if (event.type === 'report_created') {
+      db.syncReportFromServer(event.report);
+      this.reportUpdateListeners.forEach(cb => cb(event.report));
+    } else if (event.type === 'report_deleted') {
+      db.removeReportFromServer(event.reportId);
+      this.reportDeleteListeners.forEach(cb => cb(event.reportId));
     }
+  }
+
+  public sendReportUpdate(report: ReportItem): void {
+    // 1. Sync local DB
+    db.syncReportFromServer(report);
+
+    // 2. Notify local listeners
+    this.reportUpdateListeners.forEach(cb => cb(report));
+
+    // 3. Send WebSocket event
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      const payload: WsClientEvent = {
+        type: 'report_update',
+        report
+      };
+      this.ws.send(JSON.stringify(payload));
+    }
+
+    // 4. Send REST API PUT
+    try {
+      fetch(`/api/reports/${report.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(report)
+      }).catch(err => console.error('Failed to sync PUT report:', err));
+    } catch {}
+  }
+
+  public sendReportDelete(reportId: string): void {
+    // 1. Remove from local DB
+    db.removeReportFromServer(reportId);
+
+    // 2. Notify local listeners
+    this.reportDeleteListeners.forEach(cb => cb(reportId));
+
+    // 3. Send WebSocket event
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      const payload: WsClientEvent = {
+        type: 'report_delete',
+        reportId
+      };
+      this.ws.send(JSON.stringify(payload));
+    }
+
+    // 4. Send REST API DELETE
+    try {
+      fetch(`/api/reports/${reportId}`, {
+        method: 'DELETE'
+      }).catch(err => console.error('Failed to sync DELETE report:', err));
+    } catch {}
   }
 
   public markAsRead(reportId: string): void {
@@ -241,6 +300,13 @@ class RealtimeService {
     this.reportUpdateListeners.add(callback);
     return () => {
       this.reportUpdateListeners.delete(callback);
+    };
+  }
+
+  public onReportDeleted(callback: ReportDeleteListener): () => void {
+    this.reportDeleteListeners.add(callback);
+    return () => {
+      this.reportDeleteListeners.delete(callback);
     };
   }
 

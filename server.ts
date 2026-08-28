@@ -358,8 +358,19 @@ app.put('/api/reports/:id', (req, res) => {
 
   serverReports[idx] = { ...serverReports[idx], ...req.body, updatedAt: new Date().toISOString() };
   const updated = serverReports[idx];
-  broadcast({ type: 'report_updated', report: updated }, updated.id);
+  broadcast({ type: 'report_updated', report: updated });
   res.json({ success: true, report: updated });
+});
+
+app.delete('/api/reports/:id', (req, res) => {
+  const id = req.params.id.trim().toLowerCase();
+  const idx = serverReports.findIndex(r => r.id.toLowerCase() === id);
+  if (idx === -1) return res.status(404).json({ error: 'ไม่พบรายงาน' });
+
+  const deleted = serverReports.splice(idx, 1)[0];
+  delete serverMessages[deleted.id];
+  broadcast({ type: 'report_deleted', reportId: deleted.id });
+  res.json({ success: true, reportId: deleted.id });
 });
 
 // Messages API
@@ -475,6 +486,30 @@ async function startServer() {
             caseId,
             ws
           );
+        } else if (data.type === 'report_update') {
+          const { report } = data;
+          if (report && report.id) {
+            const id = report.id.trim().toLowerCase();
+            const idx = serverReports.findIndex(r => r.id.toLowerCase() === id);
+            if (idx !== -1) {
+              serverReports[idx] = { ...serverReports[idx], ...report, updatedAt: new Date().toISOString() };
+            } else {
+              serverReports.unshift(report);
+            }
+            const updated = serverReports[idx] || report;
+            broadcast({ type: 'report_updated', report: updated });
+          }
+        } else if (data.type === 'report_delete') {
+          const { reportId } = data;
+          if (reportId) {
+            const id = reportId.trim().toLowerCase();
+            const idx = serverReports.findIndex(r => r.id.toLowerCase() === id);
+            if (idx !== -1) {
+              const deleted = serverReports.splice(idx, 1)[0];
+              delete serverMessages[deleted.id];
+              broadcast({ type: 'report_deleted', reportId: deleted.id });
+            }
+          }
         } else if (data.type === 'ping') {
           ws.send(JSON.stringify({ type: 'pong' }));
         }

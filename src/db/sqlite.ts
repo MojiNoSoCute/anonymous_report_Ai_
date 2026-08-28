@@ -336,13 +336,13 @@ class SQLiteDatabase {
     if (!report) return false;
 
     const categoryLabels: Record<CategoryType, string> = {
-      harassment: 'การล่วงละเมิด',
+      fraud: 'การทุจริตทางการเงิน',
+      harassment: 'การล่วงละเมิดในที่ทำงาน',
+      teaching: 'รายงานเกี่ยวกับอาจารย์/การสอน',
       compliance: 'การปฏิบัติตามกฎระเบียบ',
       technical: 'ปัญหาทางเทคนิค/ความปลอดภัย',
-      fraud: 'การทุจริตทางการเงิน',
       safety: 'ความปลอดภัย/สิ่งแวดล้อม',
-      academic: 'การประพฤติผิดทางวิชาการ',
-      teaching: 'คุณภาพการสอน/อาจารย์ผู้สอน'
+      academic: 'การประพฤติผิดทางวิชาการ'
     };
 
     const statusLabels: Record<ReportStatus, string> = {
@@ -364,13 +364,34 @@ class SQLiteDatabase {
     if (data.incidentDate) report.incidentDate = data.incidentDate;
     if (data.location) report.location = data.location;
     if (data.description) report.description = data.description;
-    if (data.assignedTo) report.assignedTo = data.assignedTo;
+    if (data.assignedTo !== undefined) report.assignedTo = data.assignedTo;
+    if (data.pin) report.pin = data.pin;
+    if (data.adminNotes !== undefined) report.adminNotes = data.adminNotes;
     
     report.updatedAt = new Date().toISOString();
 
     this.addAuditLog(userName, `Edited details for Case #${reportId}`, 'Success');
     this.persist();
     return true;
+  }
+
+  public syncReportFromServer(serverReport: ReportItem): void {
+    const idx = this.reports.findIndex(r => r.id.toLowerCase() === serverReport.id.toLowerCase());
+    if (idx !== -1) {
+      this.reports[idx] = { ...serverReport };
+    } else {
+      this.reports.unshift({ ...serverReport });
+    }
+    this.persist();
+  }
+
+  public removeReportFromServer(reportId: string): void {
+    const idx = this.reports.findIndex(r => r.id.toLowerCase() === reportId.toLowerCase());
+    if (idx !== -1) {
+      this.reports.splice(idx, 1);
+      delete this.messages[reportId];
+      this.persist();
+    }
   }
 
   public deleteReport(reportId: string, userName: string = 'Admin'): boolean {
@@ -394,6 +415,22 @@ class SQLiteDatabase {
     report.updatedAt = new Date().toISOString();
 
     this.addAuditLog(userName, `Uploaded evidence '${file.fileName}' for Case #${reportId}`, 'Success');
+    this.persist();
+    return true;
+  }
+
+  public removeEvidence(reportId: string, evidenceId: string, userName: string = 'Admin'): boolean {
+    const report = this.getReportById(reportId);
+    if (!report) return false;
+
+    const fileIdx = report.evidenceFiles.findIndex(f => f.id === evidenceId);
+    if (fileIdx === -1) return false;
+
+    const fileName = report.evidenceFiles[fileIdx].fileName;
+    report.evidenceFiles.splice(fileIdx, 1);
+    report.updatedAt = new Date().toISOString();
+
+    this.addAuditLog(userName, `Deleted evidence '${fileName}' from Case #${reportId}`, 'Success');
     this.persist();
     return true;
   }

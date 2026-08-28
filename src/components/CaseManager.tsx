@@ -45,6 +45,12 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
   const adminChatEndRef = useRef<HTMLDivElement>(null);
   const [, setTick] = useState<number>(0);
 
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
+  const showToast = (message: string, type: 'success' | 'info' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3500);
+  };
+
   const scrollAdminChatToBottom = (smooth = false) => {
     if (adminChatContainerRef.current) {
       adminChatContainerRef.current.scrollTop = adminChatContainerRef.current.scrollHeight;
@@ -60,7 +66,7 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
     }
   };
 
-  // Listen to global incoming messages to update counts in real-time
+  // Listen to global incoming messages & report updates in real-time
   useEffect(() => {
     realtimeService.subscribe(undefined, true);
     const unsubConn = realtimeService.onConnectionChange(setIsWsConnected);
@@ -71,11 +77,21 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
     const unsubRead = realtimeService.onMessagesRead(() => {
       setTick(t => t + 1);
     });
+    const unsubReportUpdate = realtimeService.onReportUpdated((updated) => {
+      setReports(db.getReports());
+      setActiveModalCase(prev => (prev && prev.id.toLowerCase() === updated.id.toLowerCase() ? updated : prev));
+    });
+    const unsubReportDelete = realtimeService.onReportDeleted((deletedId) => {
+      setReports(db.getReports());
+      setActiveModalCase(prev => (prev && prev.id.toLowerCase() === deletedId.toLowerCase() ? null : prev));
+    });
 
     return () => {
       unsubConn();
       unsubGlobal();
       unsubRead();
+      unsubReportUpdate();
+      unsubReportDelete();
     };
   }, []);
 
@@ -196,6 +212,8 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
     urgency: UrgencyLevel;
     status: ReportStatus;
     assignedTo: string;
+    pin: string;
+    adminNotes: string;
   }>({
     category: 'fraud',
     description: '',
@@ -203,7 +221,9 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
     incidentDate: '',
     urgency: 'medium',
     status: 'received',
-    assignedTo: ''
+    assignedTo: '',
+    pin: '',
+    adminNotes: ''
   });
 
   // Media Lightbox State (For viewing image / video files in full modal)
@@ -224,7 +244,8 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
         r.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
         r.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
         r.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        r.assignedTo.toLowerCase().includes(searchTerm.toLowerCase());
+        r.assignedTo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (r.adminNotes && r.adminNotes.toLowerCase().includes(searchTerm.toLowerCase()));
 
       const matchStatus = selectedStatus === 'all' || r.status === selectedStatus;
       const matchPriority = selectedPriority === 'all' || r.urgency === selectedPriority;
@@ -251,63 +272,112 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
       incidentDate: report.incidentDate,
       urgency: report.urgency,
       status: report.status,
-      assignedTo: report.assignedTo || ''
+      assignedTo: report.assignedTo || '',
+      pin: report.pin || '',
+      adminNotes: report.adminNotes || ''
     });
     setIsEditing(true);
   };
 
   // Save Edit Handler
   const handleSaveEdit = (reportId: string) => {
-    db.updateReport(reportId, editForm, 'Admin_CaseManager');
-    refreshReports();
-    setIsEditing(false);
-    
-    // Update active modal view with fresh DB data
+    const operator = user?.name ? `Admin_${user.name}` : 'Admin_CaseManager';
+    db.updateReport(reportId, editForm, operator);
     const updated = db.getReportById(reportId);
     if (updated) {
+      realtimeService.sendReportUpdate(updated);
       setActiveModalCase(updated);
     }
+    refreshReports();
+    setIsEditing(false);
+    showToast(`บันทึกการแก้ไขข้อมูลรายงาน #${reportId} สำเร็จแล้ว`, 'success');
   };
 
   // Delete Handler
   const handleDeleteReport = (reportId: string) => {
-    db.deleteReport(reportId, 'Admin_CaseManager');
+    const operator = user?.name ? `Admin_${user.name}` : 'Admin_CaseManager';
+    db.deleteReport(reportId, operator);
+    realtimeService.sendReportDelete(reportId);
     refreshReports();
     setDeleteConfirmId(null);
-    if (activeModalCase && activeModalCase.id === reportId) {
+    if (activeModalCase && activeModalCase.id.toLowerCase() === reportId.toLowerCase()) {
       setActiveModalCase(null);
     }
+    showToast(`ลบรายงาน #${reportId} ออกจากระบบเรียบร้อยแล้ว`, 'info');
   };
 
   // Quick Status update
   const handleUpdateStatus = (reportId: string, newStatus: ReportStatus) => {
-    db.updateReportStatus(reportId, newStatus, 'Admin_CaseManager');
-    refreshReports();
-    if (activeModalCase && activeModalCase.id === reportId) {
-      setActiveModalCase(db.getReportById(reportId) || null);
+    const operator = user?.name ? `Admin_${user.name}` : 'Admin_CaseManager';
+    db.updateReportStatus(reportId, newStatus, operator);
+    const updated = db.getReportById(reportId);
+    if (updated) {
+      realtimeService.sendReportUpdate(updated);
+      if (activeModalCase && activeModalCase.id.toLowerCase() === reportId.toLowerCase()) {
+        setActiveModalCase(updated);
+      }
     }
+    refreshReports();
+    showToast(`อัปเดตสถานะเป็น "${updated?.statusLabelTh || newStatus}" เรียบร้อยแล้ว`, 'success');
+  };
+
+  // Quick Urgency update
+  const handleUpdateUrgency = (reportId: string, newUrgency: UrgencyLevel) => {
+    const operator = user?.name ? `Admin_${user.name}` : 'Admin_CaseManager';
+    db.updateReport(reportId, { urgency: newUrgency }, operator);
+    const updated = db.getReportById(reportId);
+    if (updated) {
+      realtimeService.sendReportUpdate(updated);
+      if (activeModalCase && activeModalCase.id.toLowerCase() === reportId.toLowerCase()) {
+        setActiveModalCase(updated);
+      }
+    }
+    refreshReports();
+    showToast(`อัปเดตระดับความเร่งด่วนเป็น "${newUrgency.toUpperCase()}" เรียบร้อยแล้ว`, 'success');
+  };
+
+  // Delete Evidence File
+  const handleDeleteEvidence = (reportId: string, evidenceId: string) => {
+    const operator = user?.name ? `Admin_${user.name}` : 'Admin_CaseManager';
+    db.removeEvidence(reportId, evidenceId, operator);
+    const updated = db.getReportById(reportId);
+    if (updated) {
+      realtimeService.sendReportUpdate(updated);
+      setActiveModalCase(updated);
+    }
+    refreshReports();
+    showToast('ลบไฟล์หลักฐานออกจากสำนวนเรียบร้อยแล้ว', 'info');
   };
 
   // Upload Evidence File (Image or Video)
   const handleAdminFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0 || !activeModalCase) return;
     const file = e.target.files[0];
-    const isVid = file.type.startsWith('video/');
-    const fileUrl = URL.createObjectURL(file);
+    
+    const reader = new FileReader();
+    reader.onload = () => {
+      const fileUrl = (reader.result as string) || URL.createObjectURL(file);
+      const newEvidence: EvidenceFile = {
+        id: `ev-${Date.now()}`,
+        reportId: activeModalCase.id,
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+        url: fileUrl,
+        uploadedAt: new Date().toISOString().replace('T', ' ').substring(0, 16)
+      };
 
-    const newEvidence: EvidenceFile = {
-      id: `ev-${Date.now()}`,
-      reportId: activeModalCase.id,
-      fileName: file.name,
-      fileSize: file.size,
-      fileType: file.type,
-      url: fileUrl,
-      uploadedAt: new Date().toISOString().replace('T', ' ').substring(0, 16)
+      const operator = user?.name ? `Admin_${user.name}` : 'Admin';
+      db.addEvidence(activeModalCase.id, newEvidence, operator);
+      const updated = db.getReportById(activeModalCase.id);
+      if (updated) {
+        realtimeService.sendReportUpdate(updated);
+        setActiveModalCase(updated);
+      }
+      refreshReports();
+      showToast(`อัปโหลดหลักฐาน "${file.name}" เพิ่มเติมเรียบร้อยแล้ว`, 'success');
     };
-
-    db.addEvidence(activeModalCase.id, newEvidence, 'Admin');
-    refreshReports();
-    setActiveModalCase(db.getReportById(activeModalCase.id) || null);
+    reader.readAsDataURL(file);
   };
 
   // Export to CSV
@@ -533,8 +603,46 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
                       <td className="py-3.5 px-4 text-slate-900 max-w-[160px] truncate font-medium">
                         {r.categoryLabelTh}
                       </td>
-                      <td className="py-3.5 px-4">{getPriorityBadge(r.urgency)}</td>
-                      <td className="py-3.5 px-4">{getStatusBadge(r.status)}</td>
+                      <td className="py-3.5 px-4">
+                        {/* Direct Inline Urgency Selector for Admin in Table */}
+                        <select
+                          value={r.urgency}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => handleUpdateUrgency(r.id, e.target.value as UrgencyLevel)}
+                          className={`text-[11px] font-black px-2.5 py-1.5 rounded-xl border cursor-pointer transition-all outline-none shadow-xs ${
+                            r.urgency === 'critical' ? 'bg-red-50 text-red-800 border-red-300 hover:bg-red-100' :
+                            r.urgency === 'high' ? 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100' :
+                            r.urgency === 'medium' ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100' :
+                            'bg-slate-100 text-slate-800 border-slate-300 hover:bg-slate-200'
+                          }`}
+                          title="คลิกเพื่อเปลี่ยนระดับความเร่งด่วนทันที"
+                        >
+                          <option value="low">🟢 ปกติ (Low)</option>
+                          <option value="medium">🟡 ปานกลาง (Med)</option>
+                          <option value="high">🔴 สูง (High)</option>
+                          <option value="critical">🚨 วิกฤต (Critical)</option>
+                        </select>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        {/* Direct Inline Status Selector for Admin in Table */}
+                        <select
+                          value={r.status}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => handleUpdateStatus(r.id, e.target.value as ReportStatus)}
+                          className={`text-[11px] font-black px-2.5 py-1.5 rounded-xl border cursor-pointer transition-all outline-none shadow-xs ${
+                            r.status === 'received' ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100' :
+                            r.status === 'investigating' ? 'bg-blue-50 text-blue-900 border-blue-300 hover:bg-blue-100' :
+                            r.status === 'disciplinary' ? 'bg-purple-50 text-purple-900 border-purple-300 hover:bg-purple-100' :
+                            'bg-emerald-50 text-emerald-900 border-emerald-300 hover:bg-emerald-100'
+                          }`}
+                          title="คลิกเพื่อเปลี่ยนสถานะดำเนินการทันที"
+                        >
+                          <option value="received">📩 รับเรื่องแล้ว</option>
+                          <option value="investigating">🔍 กำลังตรวจสอบ</option>
+                          <option value="disciplinary">⚖️ ดำเนินการทางวินัย</option>
+                          <option value="closed">✅ ปิดเรื่องเรียบร้อย</option>
+                        </select>
+                      </td>
                       <td className="py-3.5 px-4">
                         {r.evidenceFiles.length > 0 ? (
                           <div className="flex items-center gap-1.5">
@@ -561,6 +669,19 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-1">
                           
+                          {/* Edit Button */}
+                          <button
+                            onClick={() => {
+                              setActiveModalCase(r);
+                              handleStartEdit(r);
+                            }}
+                            className="px-2.5 py-1 text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer shadow-2xs hover:scale-105 active:scale-95"
+                            title="คลิกเพื่อแก้ไขข้อมูลรายงาน"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-amber-700" />
+                            <span>แก้ไข</span>
+                          </button>
+
                           {/* View Detail Button */}
                           <button
                             onClick={() => {
@@ -571,18 +692,6 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
                             title="ดูรายละเอียด / ไฟล์สื่อ"
                           >
                             <Eye className="w-4 h-4" />
-                          </button>
-
-                          {/* Edit Button */}
-                          <button
-                            onClick={() => {
-                              setActiveModalCase(r);
-                              handleStartEdit(r);
-                            }}
-                            className="p-1.5 text-slate-600 hover:text-amber-700 hover:bg-amber-100 rounded-lg transition-colors cursor-pointer"
-                            title="แก้ไขข้อมูลรายงาน"
-                          >
-                            <Edit3 className="w-4 h-4" />
                           </button>
 
                           {/* Chat Secret Channel */}
@@ -721,7 +830,15 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
 
             {/* Editing Form OR View Details */}
             {isEditing ? (
-              <div className="space-y-4 bg-rose-50/30 p-4 border border-rose-100 rounded-2xl">
+              <div className="space-y-4 bg-rose-50/40 p-5 border border-rose-200 rounded-2xl">
+                <div className="flex items-center justify-between pb-2 border-b border-rose-200/80">
+                  <span className="text-xs font-black text-rose-950 flex items-center gap-1.5">
+                    <Edit3 className="w-4 h-4 text-red-700" />
+                    <span>แก้ไขข้อมูลสำนวนคดีและรายละเอียดรายงาน</span>
+                  </span>
+                  <span className="text-[11px] text-slate-500 font-mono">ID: {activeModalCase.id}</span>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   
                   <div>
@@ -729,15 +846,15 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
                     <select
                       value={editForm.category}
                       onChange={(e) => setEditForm(prev => ({ ...prev, category: e.target.value as CategoryType }))}
-                      className="w-full bg-white border border-slate-300 rounded-xl p-2 text-xs font-bold text-slate-900 focus:border-red-600 outline-none"
+                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-slate-900 focus:border-red-600 focus:ring-2 focus:ring-red-100 outline-none"
                     >
-                      <option value="fraud">การทุจริตทางการเงิน</option>
-                      <option value="harassment">การล่วงละเมิดในที่ทำงาน</option>
-                      <option value="teaching">รายงานเกี่ยวกับอาจารย์/การสอน</option>
-                      <option value="compliance">การปฏิบัติตามกฎระเบียบ</option>
-                      <option value="technical">ปัญหาทางเทคนิค/ความปลอดภัย</option>
-                      <option value="safety">ความปลอดภัย/สิ่งแวดล้อม</option>
-                      <option value="academic">การประพฤติผิดทางวิชาการ</option>
+                      <option value="fraud">การทุจริตทางการเงิน (Financial Fraud)</option>
+                      <option value="harassment">การล่วงละเมิดในที่ทำงาน (Harassment)</option>
+                      <option value="teaching">รายงานเกี่ยวกับอาจารย์/การสอน (Teaching Quality)</option>
+                      <option value="compliance">การปฏิบัติตามกฎระเบียบ (Compliance)</option>
+                      <option value="technical">ปัญหาทางเทคนิค/ความปลอดภัย (Technical Security)</option>
+                      <option value="safety">ความปลอดภัย/สิ่งแวดล้อม (Safety & Environment)</option>
+                      <option value="academic">การประพฤติผิดทางวิชาการ (Academic Integrity)</option>
                     </select>
                   </div>
 
@@ -746,12 +863,12 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
                     <select
                       value={editForm.urgency}
                       onChange={(e) => setEditForm(prev => ({ ...prev, urgency: e.target.value as UrgencyLevel }))}
-                      className="w-full bg-white border border-slate-300 rounded-xl p-2 text-xs font-bold text-slate-900 focus:border-red-600 outline-none"
+                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-slate-900 focus:border-red-600 focus:ring-2 focus:ring-red-100 outline-none"
                     >
-                      <option value="critical">วิกฤต (Critical)</option>
-                      <option value="high">สูง (High)</option>
-                      <option value="medium">ปานกลาง (Medium)</option>
-                      <option value="low">ต่ำ (Low)</option>
+                      <option value="critical">🚨 วิกฤตเร่งด่วนที่สุด (Critical)</option>
+                      <option value="high">🔴 สูง (High)</option>
+                      <option value="medium">🟡 ปานกลาง (Medium)</option>
+                      <option value="low">🟢 ปกติ / ต่ำ (Low)</option>
                     </select>
                   </div>
 
@@ -760,23 +877,23 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
                     <select
                       value={editForm.status}
                       onChange={(e) => setEditForm(prev => ({ ...prev, status: e.target.value as ReportStatus }))}
-                      className="w-full bg-white border border-slate-300 rounded-xl p-2 text-xs font-bold text-slate-900 focus:border-red-600 outline-none"
+                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-slate-900 focus:border-red-600 focus:ring-2 focus:ring-red-100 outline-none"
                     >
-                      <option value="received">รับเรื่องแล้ว</option>
-                      <option value="investigating">กำลังตรวจสอบข้อเท็จจริง</option>
-                      <option value="disciplinary">ดำเนินการทางวินัย/กฎหมาย</option>
-                      <option value="closed">ปิดเรื่องเรียบร้อยแล้ว</option>
+                      <option value="received">📩 รับเรื่องแล้ว (Received)</option>
+                      <option value="investigating">🔍 กำลังตรวจสอบข้อเท็จจริง (Investigating)</option>
+                      <option value="disciplinary">⚖️ ดำเนินการทางวินัย/กฎหมาย (Disciplinary)</option>
+                      <option value="closed">✅ ปิดเรื่องเรียบร้อยแล้ว (Closed)</option>
                     </select>
                   </div>
 
                   <div>
-                    <label className="text-xs font-bold text-slate-800 block mb-1">เจ้าหน้าที่ผู้รับผิดชอบ:</label>
+                    <label className="text-xs font-bold text-slate-800 block mb-1">เจ้าหน้าที่ผู้รับผิดชอบสำนวน:</label>
                     <input
                       type="text"
                       value={editForm.assignedTo}
                       onChange={(e) => setEditForm(prev => ({ ...prev, assignedTo: e.target.value }))}
-                      placeholder="เช่น เจ้าหน้าที่สืบสวน สมชาย"
-                      className="w-full bg-white border border-slate-300 rounded-xl p-2 text-xs font-bold text-slate-900 focus:border-red-600 outline-none"
+                      placeholder="เช่น คณะกรรมการสืบสวนข้อเท็จจริง ชุดที่ 2"
+                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-slate-900 focus:border-red-600 focus:ring-2 focus:ring-red-100 outline-none"
                     />
                   </div>
 
@@ -786,7 +903,7 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
                       type="date"
                       value={editForm.incidentDate}
                       onChange={(e) => setEditForm(prev => ({ ...prev, incidentDate: e.target.value }))}
-                      className="w-full bg-white border border-slate-300 rounded-xl p-2 text-xs font-bold text-slate-900 focus:border-red-600 outline-none"
+                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-slate-900 focus:border-red-600 focus:ring-2 focus:ring-red-100 outline-none"
                     />
                   </div>
 
@@ -796,35 +913,71 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
                       type="text"
                       value={editForm.location}
                       onChange={(e) => setEditForm(prev => ({ ...prev, location: e.target.value }))}
-                      className="w-full bg-white border border-slate-300 rounded-xl p-2 text-xs font-bold text-slate-900 focus:border-red-600 outline-none"
+                      placeholder="เช่น อาคารบริหาร ชั้น 3 หรือ ออนไลน์"
+                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-slate-900 focus:border-red-600 focus:ring-2 focus:ring-red-100 outline-none"
+                    />
+                  </div>
+
+                  <div className="md:col-span-2">
+                    <label className="text-xs font-bold text-slate-800 block mb-1 flex items-center justify-between">
+                      <span>รหัสลับ PIN สำหรับผู้แจ้ง (4 หลัก):</span>
+                      <span className="text-[10px] text-slate-500 font-normal">รหัสที่ผู้แจ้งใช้ในการล็อกอินติดตามสถานะ</span>
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={6}
+                      value={editForm.pin}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, pin: e.target.value }))}
+                      placeholder="เช่น 1234"
+                      className="w-full bg-white border border-slate-300 rounded-xl p-2.5 text-xs font-mono font-bold text-red-700 tracking-widest focus:border-red-600 focus:ring-2 focus:ring-red-100 outline-none"
                     />
                   </div>
 
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-slate-800 block mb-1">รายละเอียดเหตุการณ์:</label>
+                  <label className="text-xs font-bold text-slate-800 block mb-1">รายละเอียดเหตุการณ์ที่รายงาน:</label>
                   <textarea
                     rows={4}
                     value={editForm.description}
                     onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
-                    className="w-full bg-white border border-slate-300 rounded-xl p-3 text-xs text-slate-900 focus:border-red-600 outline-none"
+                    placeholder="รายละเอียดเหตุการณ์..."
+                    className="w-full bg-white border border-slate-300 rounded-xl p-3 text-xs text-slate-900 focus:border-red-600 focus:ring-2 focus:ring-red-100 outline-none leading-relaxed"
                   />
                 </div>
 
-                <div className="flex justify-end gap-2 pt-2">
+                <div>
+                  <label className="text-xs font-bold text-amber-950 block mb-1 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-amber-700" />
+                      <span>บันทึกข้อค้นพบ / ผลการสืบสวนภายในของ Admin (Internal Memo):</span>
+                    </span>
+                    <span className="text-[10px] text-amber-800 font-medium">บันทึกช่วยจำสำหรับเจ้าหน้าที่สืบสวน</span>
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={editForm.adminNotes}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, adminNotes: e.target.value }))}
+                    placeholder="กรอกบันทึกข้อค้นพบ พยานบุคคลที่เกี่ยวข้อง หรือมติที่ประชุมสืบสวน..."
+                    className="w-full bg-amber-50/60 border border-amber-300 rounded-xl p-3 text-xs text-slate-900 focus:border-amber-600 focus:ring-2 focus:ring-amber-200 outline-none leading-relaxed"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-rose-200/80">
                   <button
+                    type="button"
                     onClick={() => setIsEditing(false)}
-                    className="px-4 py-2 bg-slate-200 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-300 transition-colors"
+                    className="px-4 py-2 bg-slate-200 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-300 transition-colors cursor-pointer"
                   >
                     ยกเลิก
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleSaveEdit(activeModalCase.id)}
-                    className="px-5 py-2 bg-gradient-to-r from-red-700 to-rose-700 hover:from-red-800 hover:to-rose-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md transition-all cursor-pointer"
+                    className="px-5 py-2 bg-gradient-to-r from-red-700 to-rose-700 hover:from-red-800 hover:to-rose-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md transition-all cursor-pointer active:scale-95"
                   >
                     <Save className="w-4 h-4 text-rose-200" />
-                    <span>บันทึกการแก้ไข</span>
+                    <span>บันทึกการแก้ไขข้อมูล</span>
                   </button>
                 </div>
               </div>
@@ -840,7 +993,7 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
                   </div>
                   <div>
                     <span className="text-slate-500 block font-medium">สถานที่:</span>
-                    <span className="font-bold text-slate-900">{activeModalCase.location}</span>
+                    <span className="font-bold text-slate-900 truncate block">{activeModalCase.location}</span>
                   </div>
                   <div>
                     <span className="text-slate-500 block font-medium">ระดับความเร่งด่วน:</span>
@@ -866,11 +1019,12 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
                       ].map((st) => (
                         <button
                           key={st.status}
+                          type="button"
                           onClick={() => handleUpdateStatus(activeModalCase.id, st.status as ReportStatus)}
                           className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                             activeModalCase.status === st.status
                               ? 'bg-red-700 text-white ring-2 ring-red-700/30 shadow-xs'
-                              : 'bg-slate-100 text-slate-700 hover:bg-rose-100'
+                              : 'bg-slate-100 text-slate-700 hover:bg-rose-100 hover:text-red-800'
                           }`}
                         >
                           {st.label}
@@ -883,7 +1037,7 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
                   <div className="space-y-2">
                     <span className="text-xs font-bold text-rose-900 flex items-center gap-1">
                       <Lock className="w-3.5 h-3.5 text-rose-700" />
-                      <span>ปรับระดับความเร่งด่วน (สิทธิ์ Admin เท่านั้น):</span>
+                      <span>ปรับระดับความเร่งด่วน (สิทธิ์ Admin):</span>
                     </span>
                     <div className="flex flex-wrap gap-1.5">
                       {[
@@ -894,11 +1048,8 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
                       ].map((urg) => (
                         <button
                           key={urg.level}
-                          onClick={() => {
-                            db.updateReport(activeModalCase.id, { urgency: urg.level as UrgencyLevel }, 'Admin_QuickUrgency');
-                            refreshReports();
-                            setActiveModalCase(db.getReportById(activeModalCase.id) || null);
-                          }}
+                          type="button"
+                          onClick={() => handleUpdateUrgency(activeModalCase.id, urg.level as UrgencyLevel)}
                           className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                             activeModalCase.urgency === urg.level
                               ? 'bg-rose-900 text-white ring-2 ring-rose-900/30 shadow-xs'
@@ -912,18 +1063,69 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
                   </div>
                 </div>
 
-                {/* Assigned To */}
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs flex items-center justify-between">
-                  <span className="text-slate-600 font-medium">ผู้รับผิดชอบสำนวน:</span>
-                  <span className="font-bold text-slate-900 bg-white px-3 py-1 rounded-lg border border-slate-200">
-                    {activeModalCase.assignedTo || 'ยังไม่ได้มอบหมาย'}
-                  </span>
+                {/* Assigned To & PIN info */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs flex items-center justify-between">
+                    <span className="text-slate-600 font-medium">ผู้รับผิดชอบสำนวน:</span>
+                    <span className="font-bold text-slate-900 bg-white px-2.5 py-1 rounded-lg border border-slate-200">
+                      {activeModalCase.assignedTo || 'ยังไม่ได้มอบหมาย'}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs flex items-center justify-between">
+                    <span className="text-slate-600 font-medium">รหัส PIN ผู้แจ้ง:</span>
+                    <span className="font-mono font-black text-red-700 bg-white px-2.5 py-1 rounded-lg border border-slate-200 tracking-wider">
+                      {activeModalCase.pin || '----'}
+                    </span>
+                  </div>
                 </div>
+
+                {/* Internal Admin Memo / Investigation Findings */}
+                {activeModalCase.adminNotes ? (
+                  <div className="bg-amber-50/70 p-3.5 rounded-xl border border-amber-200 space-y-1">
+                    <span className="text-xs font-bold text-amber-950 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <Lock className="w-3.5 h-3.5 text-amber-700" />
+                        <span>บันทึกข้อค้นพบ / ผลการสืบสวนภายในของ Admin:</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleStartEdit(activeModalCase)}
+                        className="text-[11px] text-amber-800 hover:text-amber-950 underline font-medium cursor-pointer"
+                      >
+                        แก้ไขบันทึก
+                      </button>
+                    </span>
+                    <p className="text-xs text-slate-800 leading-relaxed font-medium whitespace-pre-wrap">
+                      {activeModalCase.adminNotes}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 flex items-center justify-between text-xs text-slate-500">
+                    <span>ยังไม่มีบันทึกผลการสืบสวนภายใน</span>
+                    <button
+                      type="button"
+                      onClick={() => handleStartEdit(activeModalCase)}
+                      className="text-red-700 hover:text-red-800 font-bold underline cursor-pointer"
+                    >
+                      + เพิ่มบันทึกช่วยจำภายใน
+                    </button>
+                  </div>
+                )}
 
                 {/* Description */}
                 <div className="space-y-1">
-                  <span className="text-xs font-bold text-slate-900 block">รายละเอียดเหตุการณ์:</span>
-                  <p className="text-xs text-slate-800 bg-rose-50/30 p-3.5 rounded-xl border border-rose-100 leading-relaxed font-normal">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-slate-900 block">รายละเอียดเหตุการณ์:</span>
+                    <button
+                      type="button"
+                      onClick={() => handleStartEdit(activeModalCase)}
+                      className="text-[11px] text-red-700 hover:underline font-bold cursor-pointer"
+                    >
+                      แก้ไขรายละเอียด
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-800 bg-rose-50/30 p-3.5 rounded-xl border border-rose-100 leading-relaxed font-normal whitespace-pre-wrap">
                     {activeModalCase.description}
                   </p>
                 </div>
@@ -1009,39 +1211,59 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
                         return (
                           <div
                             key={ev.id}
-                            onClick={() => setActiveMedia(ev)}
-                            className="group relative border border-rose-200 rounded-xl overflow-hidden bg-slate-900 cursor-pointer shadow-xs hover:border-red-600 transition-all"
+                            className="group relative border border-rose-200 rounded-xl overflow-hidden bg-slate-900 shadow-xs hover:border-red-600 transition-all"
                           >
-                            {isImg ? (
-                              <div className="h-28 w-full overflow-hidden bg-slate-950 relative">
-                                <img
-                                  src={ev.url}
-                                  alt={ev.fileName}
-                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                                />
-                                <span className="absolute top-1.5 right-1.5 bg-slate-900/80 text-white text-[9px] font-bold px-2 py-0.5 rounded-md backdrop-blur-xs">
-                                  ภาพ
-                                </span>
-                              </div>
-                            ) : isVid ? (
-                              <div className="h-28 w-full bg-slate-950 flex flex-col items-center justify-center relative group-hover:bg-slate-900 transition-colors">
-                                <div className="w-10 h-10 rounded-full bg-red-700/90 text-white flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
-                                  <Play className="w-5 h-5 fill-current ml-0.5" />
+                            <div 
+                              onClick={() => setActiveMedia(ev)}
+                              className="cursor-pointer"
+                            >
+                              {isImg ? (
+                                <div className="h-28 w-full overflow-hidden bg-slate-950 relative">
+                                  <img
+                                    src={ev.url}
+                                    alt={ev.fileName}
+                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                                  />
+                                  <span className="absolute top-1.5 right-1.5 bg-slate-900/80 text-white text-[9px] font-bold px-2 py-0.5 rounded-md backdrop-blur-xs">
+                                    ภาพ
+                                  </span>
                                 </div>
-                                <span className="absolute top-1.5 right-1.5 bg-purple-900/90 text-white text-[9px] font-bold px-2 py-0.5 rounded-md">
-                                  วิดีโอ MP4
-                                </span>
-                              </div>
-                            ) : (
-                              <div className="h-28 w-full bg-slate-100 flex flex-col items-center justify-center text-slate-700">
-                                <FileText className="w-8 h-8 text-red-700 mb-1" />
-                                <span className="text-[10px] font-bold">เอกสาร PDF</span>
-                              </div>
-                            )}
+                              ) : isVid ? (
+                                <div className="h-28 w-full bg-slate-950 flex flex-col items-center justify-center relative group-hover:bg-slate-900 transition-colors">
+                                  <div className="w-10 h-10 rounded-full bg-red-700/90 text-white flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
+                                    <Play className="w-5 h-5 fill-current ml-0.5" />
+                                  </div>
+                                  <span className="absolute top-1.5 right-1.5 bg-purple-900/90 text-white text-[9px] font-bold px-2 py-0.5 rounded-md">
+                                    วิดีโอ MP4
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="h-28 w-full bg-slate-100 flex flex-col items-center justify-center text-slate-700">
+                                  <FileText className="w-8 h-8 text-red-700 mb-1" />
+                                  <span className="text-[10px] font-bold">เอกสาร PDF</span>
+                                </div>
+                              )}
+                            </div>
 
-                            <div className="p-2 bg-white text-slate-900 border-t border-rose-100">
-                              <p className="text-[11px] font-bold truncate">{ev.fileName}</p>
-                              <p className="text-[9px] text-slate-500 font-mono">{(ev.fileSize / 1024).toFixed(1)} KB • คลิกเพื่อดู</p>
+                            <div className="p-2 bg-white text-slate-900 border-t border-rose-100 flex items-center justify-between">
+                              <div 
+                                onClick={() => setActiveMedia(ev)}
+                                className="truncate cursor-pointer flex-1 mr-2"
+                              >
+                                <p className="text-[11px] font-bold truncate">{ev.fileName}</p>
+                                <p className="text-[9px] text-slate-500 font-mono">{(ev.fileSize / 1024).toFixed(1)} KB • คลิกดู</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteEvidence(activeModalCase.id, ev.id);
+                                }}
+                                title="ลบไฟล์หลักฐานนี้"
+                                className="p-1 rounded-md text-slate-400 hover:text-red-700 hover:bg-rose-50 transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
                             </div>
                           </div>
                         );
@@ -1054,7 +1276,7 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
             )}
 
             {/* Modal Bottom Action Footer */}
-            <div className="pt-3 border-t border-rose-100 flex items-center justify-between">
+            <div className="pt-3 border-t border-rose-100 flex flex-wrap items-center justify-between gap-2">
               <button
                 onClick={() => {
                   setDeleteConfirmId(activeModalCase.id);
@@ -1065,15 +1287,28 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
                 <span>ลบรายงานนี้</span>
               </button>
 
-              <button
-                onClick={() => {
-                  setActiveModalCase(null);
-                  setIsEditing(false);
-                }}
-                className="bg-gradient-to-r from-red-700 to-rose-700 hover:from-red-800 hover:to-rose-800 text-white px-5 py-2.5 rounded-xl text-xs font-bold shadow-md cursor-pointer"
-              >
-                ปิดหน้าต่าง (Close)
-              </button>
+              <div className="flex items-center gap-2">
+                {!isEditing ? (
+                  <button
+                    type="button"
+                    onClick={() => handleStartEdit(activeModalCase)}
+                    className="px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                  >
+                    <Edit3 className="w-3.5 h-3.5 text-amber-700" />
+                    <span>แก้ไขข้อมูลสำนวนนี้ (Edit)</span>
+                  </button>
+                ) : null}
+
+                <button
+                  onClick={() => {
+                    setActiveModalCase(null);
+                    setIsEditing(false);
+                  }}
+                  className="bg-gradient-to-r from-red-700 to-rose-700 hover:from-red-800 hover:to-rose-800 text-white px-5 py-2 rounded-xl text-xs font-bold shadow-md cursor-pointer"
+                >
+                  ปิดหน้าต่าง (Close)
+                </button>
+              </div>
             </div>
 
           </div>
@@ -1339,6 +1574,26 @@ export const CaseManager: React.FC<CaseManagerProps> = ({ onOpenChatWithCase, us
               </button>
             </form>
 
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-50 animate-bounce-in max-w-md">
+          <div className={`p-4 rounded-2xl shadow-2xl border flex items-center gap-3 backdrop-blur-md ${
+            toast.type === 'success' 
+              ? 'bg-emerald-950/95 text-emerald-100 border-emerald-500/50 shadow-emerald-950/50' 
+              : toast.type === 'error'
+              ? 'bg-red-950/95 text-rose-100 border-red-500/50 shadow-red-950/50'
+              : 'bg-slate-900/95 text-slate-100 border-slate-700 shadow-black/50'
+          }`}>
+            <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+              toast.type === 'success' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+            }`}>
+              {toast.type === 'success' ? <CheckCircle2 className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
+            </div>
+            <p className="text-xs font-bold leading-relaxed">{toast.message}</p>
           </div>
         </div>
       )}

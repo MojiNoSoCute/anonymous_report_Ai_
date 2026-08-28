@@ -104,6 +104,13 @@ export const TrackStatus: React.FC<TrackStatusProps> = ({
       }
     });
 
+    const unsubDelete = realtimeService.onReportDeleted((deletedId) => {
+      if (deletedId.toLowerCase() === activeReport.id.toLowerCase()) {
+        setActiveReport(null);
+        setLoginError('รายงานนี้ถูกปิดหรือลบออกจากระบบแล้ว');
+      }
+    });
+
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
@@ -112,6 +119,7 @@ export const TrackStatus: React.FC<TrackStatusProps> = ({
       unsubMsg();
       unsubTyping();
       unsubReport();
+      unsubDelete();
     };
   }, [activeReport?.id]);
 
@@ -178,31 +186,36 @@ export const TrackStatus: React.FC<TrackStatusProps> = ({
     if (!e.target.files || e.target.files.length === 0 || !activeReport) return;
 
     const file = e.target.files[0];
-    const isImage = file.type.startsWith('image/');
-    const previewUrl = isImage 
-      ? URL.createObjectURL(file) 
-      : 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=400&auto=format&fit=crop&q=80';
+    const reader = new FileReader();
+    reader.onload = () => {
+      const fileUrl = (reader.result as string) || URL.createObjectURL(file);
+      const newEvidence: EvidenceFile = {
+        id: `ev-${Date.now()}`,
+        reportId: activeReport.id,
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type || 'application/octet-stream',
+        url: fileUrl,
+        uploadedAt: new Date().toLocaleString('th-TH')
+      };
 
-    const newEvidence: EvidenceFile = {
-      id: `ev-${Date.now()}`,
-      reportId: activeReport.id,
-      fileName: file.name,
-      fileSize: file.size,
-      fileType: file.type || 'application/octet-stream',
-      url: previewUrl,
-      uploadedAt: new Date().toLocaleString('th-TH')
+      db.addEvidence(activeReport.id, newEvidence, 'Reporter');
+      const updated = db.getReportById(activeReport.id);
+      if (updated) {
+        realtimeService.sendReportUpdate(updated);
+        setActiveReport(updated);
+      }
     };
-
-    db.addEvidence(activeReport.id, newEvidence, 'Reporter');
-    setActiveReport(db.getReportById(activeReport.id) || null);
+    reader.readAsDataURL(file);
   };
 
   const handleWithdrawReport = () => {
     if (!activeReport) return;
     if (confirm(`คุณแน่ใจหรือไม่ว่าต้องการถอนรายงาน #${activeReport.id}? ข้อมูลทั้งหมดจะถูกลบถาวร`)) {
-      db.deleteReport(activeReport.id, 'Reporter');
+      const reportId = activeReport.id;
+      db.deleteReport(reportId, 'Reporter');
+      realtimeService.sendReportDelete(reportId);
       setActiveReport(null);
-      alert('ถอนรายงานเรียบร้อยแล้ว');
     }
   };
 
