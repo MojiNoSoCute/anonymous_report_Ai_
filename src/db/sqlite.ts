@@ -303,7 +303,7 @@ class SQLiteDatabase {
   }
 
   public updateReportStatus(reportId: string, newStatus: ReportStatus, userName: string = 'Admin'): boolean {
-    const report = this.getReportById(reportId);
+    const report = this.reports.find(r => r.id.toLowerCase() === reportId.trim().toLowerCase());
     if (!report) return false;
 
     const statusLabels: Record<ReportStatus, string> = {
@@ -332,7 +332,7 @@ class SQLiteDatabase {
     data: Partial<Omit<ReportItem, 'id' | 'createdAt'>>, 
     userName: string = 'Admin'
   ): boolean {
-    const report = this.getReportById(reportId);
+    const report = this.reports.find(r => r.id.toLowerCase() === reportId.trim().toLowerCase());
     if (!report) return false;
 
     const categoryLabels: Record<CategoryType, string> = {
@@ -408,7 +408,7 @@ class SQLiteDatabase {
 
   // --- Evidence Files ---
   public addEvidence(reportId: string, file: EvidenceFile, userName: string = 'User'): boolean {
-    const report = this.getReportById(reportId);
+    const report = this.reports.find(r => r.id.toLowerCase() === reportId.trim().toLowerCase());
     if (!report) return false;
 
     report.evidenceFiles.push(file);
@@ -420,7 +420,7 @@ class SQLiteDatabase {
   }
 
   public removeEvidence(reportId: string, evidenceId: string, userName: string = 'Admin'): boolean {
-    const report = this.getReportById(reportId);
+    const report = this.reports.find(r => r.id.toLowerCase() === reportId.trim().toLowerCase());
     if (!report) return false;
 
     const fileIdx = report.evidenceFiles.findIndex(f => f.id === evidenceId);
