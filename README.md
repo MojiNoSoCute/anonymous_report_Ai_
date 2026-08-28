@@ -83,66 +83,93 @@
 
 ---
 
-## 🛠️ วิธีการติดตั้งและรันระบบ (Installation & Setup)
+## 🛠️ วิธีการติดตั้งและรันระบบ (Installation & How to Run)
 
-### ทางเลือกที่ 1: รันด้วย Node.js (React + Vite + Express + Gemini AI)
+### 🚀 วิธีที่ 1: รันในสภาพแวดล้อม Node.js Full-Stack (แนะนำ - รองรับทุกฟังก์ชัน + AI + WebSockets)
 
 #### ความต้องการของระบบ (Prerequisites)
-- Node.js 18.0.0 หรือสูงกว่า
-- npm หรือ bun
+- **Node.js**: เวอร์ชัน 18.0.0 ขึ้นไป (ตรวจสอบด้วยคำสั่ง `node -v`)
+- **npm**: เวอร์ชัน 9.0.0 ขึ้นไป (หรือใช้ `pnpm` / `bun` / `yarn`)
 
-#### ขั้นตอนการติดตั้ง:
+#### ขั้นตอนการติดตั้งและรัน:
+
 ```bash
-# 1. ติดตั้ง Dependencies ทั้งหมด
+# 1. โคลนโปรเจกต์ (หากนำไปรันที่เครื่องตัวเอง)
+git clone <URL_REPO>
+cd npru-sentinel
+
+# 2. ติดตั้ง Dependencies ทั้งหมด
 npm install
 
-# 2. คัดลอกและตั้งค่า Environment Variables
+# 3. ตั้งค่าไฟล์ Environment Variables
+# ทำการคัดลอกไฟล์ตัวอย่าง .env.example ไปเป็น .env
 cp .env.example .env
 ```
 
-#### การตั้งค่า `.env`:
+#### การตั้งค่าคีย์ในไฟล์ `.env`:
+เปิดไฟล์ `.env` และกรอกค่าตามต้องการ:
 ```env
-# API Key สำหรับเชื่อมต่อ Gemini AI (รับได้จาก Google AI Studio)
-GEMINI_API_KEY="AIzaSy..."
+# พอร์ตที่ใช้รัน (ค่าเริ่มต้นคือ 3000)
+PORT=3000
 
-# URL ของระบบ
-APP_URL="http://localhost:3000"
+# API Key สำหรับระบบ AI วิเคราะห์รายงานอัตโนมัติ (รับฟรีจาก https://aistudio.google.com)
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# URL สำหรับระบบ
+APP_URL=http://localhost:3000
 ```
+> 💡 *หมายเหตุ:* หากยังไม่มี `GEMINI_API_KEY` ระบบจะมี **Local Rule-based AI Engine** ทำงานสำรองให้อัตโนมัติทันที
 
-#### เริ่มต้นรันระบบ:
+#### รันระบบในโหมดพัฒนา (Development Mode):
 ```bash
-# รัน Development Server (Port 3000)
 npm run dev
+```
+- ระบบจะเปิดเซิร์ฟเวอร์ Express + Vite พร้อมระบบ Real-time WebSockets บนพอร์ต **3000**
+- เปิดเว็บเบราว์เซอร์แล้วเข้าใช้งานได้ทันทีที่: **`http://localhost:3000`**
 
-# หรือ Build สำหรับ Production
+#### บิลด์และรันในโหมด Production:
+```bash
+# 1. ทำการ Build ทั้งฝั่ง Frontend (Vite) และ Backend (esbuild)
 npm run build
+
+# 2. เริ่มต้นรัน Production Server
 npm start
 ```
-เปิดเว็บเบราว์เซอร์แล้วเข้าไปที่ `http://localhost:3000`
 
 ---
 
-### ทางเลือกที่ 2: รันด้วย Python (Flask + SQLite3)
+### 🐍 วิธีที่ 2: รันด้วย Python Backend (Flask + SQLite)
 
-โปรเจกต์นี้มีไฟล์ `app.py` และ `schema.sql` ให้พร้อมใช้งาน:
+หากต้องการนำไปใช้งานร่วมกับ Server ภาษา Python มีไฟล์ `app.py` และ `schema.sql` ให้พร้อมใช้งาน:
 
 ```bash
-# 1. สร้างและเปิดใช้งาน Virtual Environment
+# 1. สร้าง Virtual Environment
 python -m venv venv
 
+# 2. เปิดใช้งาน Virtual Environment
 # บน Linux / macOS:
 source venv/bin/activate
-
-# บน Windows:
+# บน Windows (Command Prompt / PowerShell):
 venv\Scripts\activate
 
-# 2. ติดตั้ง Dependencies
+# 3. ติดตั้ง Dependencies ที่จำเป็น
 pip install flask flask-cors
 
-# 3. รันเซิร์ฟเวอร์ Python
+# 4. เริ่มต้นรัน Python Flask Server
 python app.py
 ```
-เปิดเว็บเบราว์เซอร์แล้วเข้าไปที่ `http://localhost:5000`
+- เซิร์ฟเวอร์ Python จะทำงานที่: **`http://localhost:5000`**
+
+---
+
+### 🔑 บัญชีผู้ใช้สำหรับทดสอบระบบ (Default Login Credentials)
+
+เมื่อเปิดหน้าเว็บแล้ว สามารถกดปุ่ม **"เจ้าหน้าที่เข้าสู่ระบบ"** ที่มุมขวาบนเพื่อทดสอบสิทธิ์:
+
+| ระดับสิทธิ์ (Role) | Username | Password | ความสามารถในระบบ |
+|---|---|---|---|
+| **ผู้ดูแลระบบ (Admin)** | `admin` | `admin123` | **แก้ไขข้อมูลได้ทุกส่วน**, ปรับความเร่งด่วน/สถานะ, ลบรายงาน, ดูสถิติ, ตรวจสอบ Audit Log, แชทลับ |
+| **เจ้าหน้าที่สอบสวน (Officer)** | `officer1` | `officer123` | ตรวจสอบข้อเท็จจริง, แชทตอบกลับผู้แจ้ง, ปรับสถานะการดำเนินการ |
 
 ---
 
