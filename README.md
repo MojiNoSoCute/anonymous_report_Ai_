@@ -138,7 +138,30 @@ npm start
 
 ---
 
-### 🐍 วิธีที่ 2: รันด้วย Python Backend (Flask + SQLite)
+### 🐳 วิธีที่ 2: รันด้วย Docker & Docker Compose (สะดวก รวดเร็ว และเป็นระเบียบ)
+
+ระบบมีไฟล์ `Dockerfile` และ `docker-compose.yml` สำหรับการ Deploy พร้อมใช้งาน:
+
+#### คำสั่งรันผ่าน Docker Compose:
+```bash
+# 1. ตั้งค่าไฟล์ .env ก่อนรัน (ถ้ายังไม่มี)
+cp .env.example .env
+
+# 2. สั่ง Build และเริ่มต้น Container ในโหมด Background
+docker compose up -d --build
+
+# 3. ตรวจสอบสถานะการทำงานและ Logs
+docker compose ps
+docker compose logs -f
+
+# 4. หยุดการทำงาน
+docker compose down
+```
+- เข้าใช้งานได้ทันทีที่: **`http://localhost:3000`**
+
+---
+
+### 🐍 วิธีที่ 3: รันด้วย Python Backend (Flask + SQLite)
 
 หากต้องการนำไปใช้งานร่วมกับ Server ภาษา Python มีไฟล์ `app.py` และ `schema.sql` ให้พร้อมใช้งาน:
 

@@ -177,20 +177,20 @@ export function analyzeReportWithAI(description: string, location?: string): AIA
     }
   }
 
-  // Determine Urgency
-  let urgency: UrgencyLevel = 'medium';
-  const criticalWords = ['ด่วนที่สุด', 'ชีวิต', 'ไฟไหม้', 'ข่มขู่ฆ่า', 'เลือด', 'ฉุกเฉิน', 'ทำร้ายร่างกาย', 'แก๊สรั่ว', 'อาคารถล่ม'];
-  const highWords = ['ทุจริต', 'คุกคาม', 'โกง', 'ล่วงละเมิดทางเพศ', 'ยาเสพติด', 'ขู่', 'แฮก'];
-  const lowWords = ['สอบถาม', 'เสนอแนะ', 'ข้อคิดเห็น', 'สอบถามข้อมูล', 'เล็กน้อย'];
+  // Determine Urgency (Default to 'low' unless elevated severity is detected)
+  let urgency: UrgencyLevel = 'low';
+  const criticalWords = ['ด่วนที่สุด', 'ชีวิต', 'ไฟไหม้', 'ข่มขู่ฆ่า', 'เลือด', 'ฉุกเฉิน', 'ทำร้ายร่างกาย', 'แก๊สรั่ว', 'อาคารถล่ม', 'อาวุธ', 'ยาเสพติด'];
+  const highWords = ['ทุจริต', 'คุกคาม', 'โกง', 'ล่วงละเมิดทางเพศ', 'ขู่', 'แฮก', 'ยักยอก', 'ลวนลาม'];
+  const mediumWords = ['ชำรุด', 'เสียหาย', 'สอนไม่รู้เรื่อง', 'มาสาย', 'ไม่เข้าสอน', 'ทะเลาะ', 'ข้อสอบ', 'ระบบล่ม'];
 
   if (criticalWords.some(w => text.includes(w))) {
     urgency = 'critical';
   } else if (highWords.some(w => text.includes(w))) {
     urgency = 'high';
-  } else if (lowWords.some(w => text.includes(w)) && maxScore < 2) {
-    urgency = 'low';
-  } else {
+  } else if (mediumWords.some(w => text.includes(w))) {
     urgency = 'medium';
+  } else {
+    urgency = 'low';
   }
 
   // Thai Category Names & Explanations
